@@ -81,7 +81,17 @@ function fmt(t){let ms=Math.round((t-Math.floor(t))*1000);let sec=Math.floor(t);
     const ch = chunks(narration[i]);
     const totalChars = ch.reduce((a,c)=>a+c.length,0)||1;
     let cum=0;
-    const timeAtFrac=(f)=>{ if(!nw) return speechStart+f*span; const wi=Math.min(nw-1, Math.max(0, Math.round(f*nw))); return (wi<nw)? words[wi].start : speechEnd; };
+    // map char-fraction -> TIME-fraction of the speech span, then snap to the nearest
+    // real word boundary. (Mapping to word INDEX distorts timing when Whisper splits
+    // Latin words into per-letter entries or word durations vary.)
+    const timeAtFrac=(f)=>{
+      const target = speechStart + f*span;
+      if(!nw) return target;
+      let best = target, bd = Infinity;
+      for(const w of words){ const d = Math.abs(w.start - target); if(d < bd){ bd = d; best = w.start; } }
+      if(bd > 0.6) best = target; // no word boundary nearby — trust proportional time
+      return Math.min(Math.max(best, speechStart), speechEnd);
+    };
     for(let k=0;k<ch.length;k++){
       const c=ch[k];
       const fa=cum/totalChars, fb=(cum+c.length)/totalChars; cum+=c.length;
