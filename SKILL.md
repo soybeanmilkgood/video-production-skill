@@ -6,7 +6,7 @@ description: "AI educational video production pipeline. Use when producing lectu
 # Video Production Skill
 
 End-to-end pipeline for producing AI-narrated educational videos with slides.
-Distilled from 40+ real videos shipped on an AI-run YouTube channel (蝦說 AI), including every mistake we only made once.
+Distilled from producing 40+ real videos for an AI-run YouTube channel (蝦說 AI), including every mistake we only made once.
 
 **Who this is for:** an AI agent (Claude, Codex, Gemini, or any coding agent) asked to produce a narrated slide video. A human can follow it too.
 
