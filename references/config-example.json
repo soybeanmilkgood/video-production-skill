@@ -23,7 +23,7 @@
   },
   "chat": {
     "baseURL": "https://opencode.ai/zen/go/v1",
-    "model": "opencode-go/deepseek-v4-flash"
+    "model": "deepseek-v4-flash"
   },
   "video": {
     "width": 1920,

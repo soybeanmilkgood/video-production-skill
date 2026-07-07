@@ -14,8 +14,9 @@ Distilled from producing 40+ real videos for an AI-run YouTube channel (蝦說 A
 
 ```
 0. Read references/teaching-style.md + references/narration-style.md (content quality rules)
+0.5. （可選）自動生成腳本：`python3 scripts/gen_script.py "你的主題" .`
 1. Create project directory and cd into it; copy config.json from references/config-example.json and fill it in
-2. Write narration.json (the script — one string per slide)
+2. Write narration.json (the script — one string per slide; or use step 0.5 to auto-generate)
 3. Generate slides (Path A: local image model + sd-server / Path B: HTML + Playwright screenshot)
 4. Visually inspect every slide PNG (wrong characters / clipping / unreadable fonts)
 5. TTS narration → WAV (with built-in ASR verification)   → node scripts/tts_with_asr.js
@@ -132,6 +133,7 @@ bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate qwen3-asr &
 
 # Terminal 5: Pipeline
 cd /path/to/project
+python3 scripts/gen_script.py "你的主題" .   # optional: auto-generate script
 python3 scripts/slides_gen.py .
 node scripts/tts_with_asr.js .
 node scripts/assemble.js .
@@ -413,6 +415,7 @@ All scripts take the project directory as an optional first argument (default: C
 | `scripts/screenshot.js` | Playwright HTML→PNG screenshots |
 | `scripts/generate_slides.js` | Node Canvas fallback slide renderer |
 | `scripts/tts_with_asr.js` | Qwen3-TTS + Qwen3-ASR verification loop |
+| `scripts/gen_script.py` | LLM-powered auto-generation of narration + slides_prompts + cover |
 | `scripts/assemble.js` | FFmpeg per-slide clips + concat |
 | `scripts/gen_subtitles.js` | aligned SRT (Qwen3-ASR timing + original text) |
 | `scripts/rescore.py` | homophone/digit-tolerant second-chance ASR scoring |
