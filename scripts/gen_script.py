@@ -40,7 +40,7 @@ def chat_completion(cfg, system_prompt, user_prompt, temperature=0.7):
         ],
         "temperature": temperature
     }
-    resp = requests.post(url, json=payload, headers=headers, timeout=180)
+    resp = requests.post(url, json=payload, headers=headers, timeout=600)
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
@@ -73,7 +73,7 @@ def build_system_prompt(project_dir):
 9. 投影片 prompt 中，必須出現在畫面上的中文字用「」包裹
 10. 每條投影片 prompt 結尾加：「所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。數字要正確。」
 11. 投影片風格：白底手繪教學風，粗黑標題左上，細線箭頭，大量留白，角落小吉祥物
-12. 8-12 張投影片
+12. 20-30 張投影片（目標總旁白約 3000 字）
 13. 若有表格數字，明確指定「畫面只能出現 X 這幾個數字，其他留空」
 
 ## 輸出格式
@@ -98,7 +98,7 @@ def build_user_prompt(topic):
 主題：{topic}
 
 要求：
-- 8-12 張投影片
+- 20-30 張投影片（目標總旁白約 3000 字）
 - 旁白用繁體中文
 - 確保 narration 和 slides_prompts 條數完全相等
 - ⚠️ 每條旁白必須嚴格在 80-150 字之間，生成後自行檢查字數，不合格的條目重寫
