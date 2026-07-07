@@ -329,7 +329,11 @@ node scripts/gen_subtitles.js [project_dir]
 Produces `subtitles_aligned.srt`: **Qwen3-ASR word timestamps for timing, original
 narration text for display** (never use ASR output as subtitle text — it mishears).
 Line breaks are width-aware (CJK=1, Latin=0.5, ≤16 full-width per line) and never cut
-inside an English word.
+inside an English word. After SRT generation, **automatically burns subtitles into
+`video_sub.mp4`** (white text + black outline, `Noto Sans CJK TC`, 22pt).
+Style is configurable via `config.json` → `subtitles` (fontName, fontSize, marginV, outline).
+
+> **video_sub.mp4 is the delivery file.** `video.mp4` is the intermediate.
 
 > ⚠️ **The #1 subtitle bug: drift from assuming clip duration = audio + padding.**
 > FFmpeg's `-shortest` truncates the padding, so real clip duration ≈ audio duration.
@@ -396,9 +400,9 @@ my-video-project/
 │   ├── slide_01.wav
 │   └── ...
 ├── temp/                    ← per-slide clips + whisper word caches
-├── video.mp4                ← assembled (no subtitles)
-├── subtitles_aligned.srt    ← aligned subtitle track
-├── video_sub.mp4            ← (optional) burned-in version
+├── video.mp4                ← assembled video (no subtitles)
+├── video_sub.mp4            ← video with subtitles burned in (delivery file)
+├── subtitles_aligned.srt    ← aligned SRT subtitle track
 └── thumbnail.jpg            ← cover, 1280×720
 ```
 

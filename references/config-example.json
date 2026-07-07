@@ -34,6 +34,12 @@
   "branding": {
     "watermark": "🎬 Your Channel Name"
   },
+  "subtitles": {
+    "fontName": "Noto Sans CJK TC",
+    "fontSize": 22,
+    "marginV": 40,
+    "outline": 2
+  },
   "ffmpeg": "ffmpeg",
   "ffprobe": "ffprobe"
 }

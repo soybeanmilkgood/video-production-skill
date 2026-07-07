@@ -147,4 +147,32 @@ function fmt(t){let ms=Math.round((t-Math.floor(t))*1000);let sec=Math.floor(t);
   }
   fs.writeFileSync(path.join(DIR,'subtitles_aligned.srt'), '\ufeff'+srt, 'utf8');
   console.log(`\nSRT written. total video offset=${offset.toFixed(2)}s`);
+
+  // --- Burn subtitles into video ---
+  const videoPath=path.join(DIR,'video.mp4');
+  const subPath=path.join(DIR,'subtitles_aligned.srt');
+  const outPath=path.join(DIR,'video_sub.mp4');
+  if(fs.existsSync(videoPath) && fs.existsSync(subPath)){
+    console.log('Burning subtitles into video...');
+    const subCfg=cfg.subtitles||{};
+    const fontName=subCfg.fontName||'Noto Sans CJK TC';
+    const fontSize=subCfg.fontSize||22;
+    const marginV=subCfg.marginV||40;
+    const outline=subCfg.outline||2;
+    const style=`FontName=${fontName},FontSize=${fontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=${outline},Shadow=1,Alignment=2,MarginV=${marginV}`;
+    const srtAbs=path.resolve(subPath).replace(/'/g,"'\\''");
+    const burn=require('child_process').spawnSync('ffmpeg',[
+      '-y','-i',videoPath,
+      '-vf',`subtitles='${srtAbs}':force_style='${style}'`,
+      '-c:a','copy','-c:v','libx264','-preset','medium','-crf','23',outPath
+    ],{encoding:'utf8',timeout:300000});
+    if(burn.status!==0){
+      console.error('FFmpeg burn failed:',(burn.stderr||'').slice(0,300));
+    }else{
+      const sz=fs.statSync(outPath).size;
+      console.log(`✅ video_sub.mp4 (${(sz/1024/1024).toFixed(1)} MB)`);
+    }
+  }else{
+    console.log('⚠️  video.mp4 or subtitles_aligned.srt not found, skipping burn');
+  }
 })();
