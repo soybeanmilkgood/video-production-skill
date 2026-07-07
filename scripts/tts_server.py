@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """
+DEPRECATED: Replaced by vLLM-Omni serve (vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-Base --omni).
+Kept for reference only. Use vLLM-Omni for production (66x faster).
+
 Qwen3-TTS Voice Clone Server (base17b).
 OpenAI /v1/audio/speech endpoint.
 

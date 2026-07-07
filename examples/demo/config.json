@@ -1,11 +1,13 @@
 {
   "tts": {
-    "provider": "qwen3-tts",
-    "baseURL": "http://localhost:8001/v1",
-    "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-    "voice": "vivian",
+    "provider": "vllm-omni",
+    "baseURL": "http://localhost:8001",
+    "model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "voice": "papaya",
+    "language": "Chinese",
+    "nonStreamingMode": true,
+    "warmup": true,
     "response_format": "wav",
-    "speed": 1.0,
     "maxRetries": 5
   },
   "asr": {

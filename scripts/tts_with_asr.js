@@ -20,7 +20,7 @@ const MAX_RETRIES = TTS_CFG.maxRetries || 5;
 const CONCURRENCY = ASR_CFG.concurrency || 4;
 
 if (!TTS_CFG.baseURL) { console.error('ERROR: tts.baseURL not set in config.json'); process.exit(1); }
-const TTS_URL = `${TTS_CFG.baseURL.replace(/\/+$/, '')}/audio/speech`;
+const TTS_URL = `${TTS_CFG.baseURL.replace(/\/+$/, '')}/v1/audio/speech`;
 
 const NARR_PATH = path.join(PROJECT_DIR, 'narration.json');
 if (!fs.existsSync(NARR_PATH)) { console.error(`ERROR: narration.json not found`); process.exit(1); }
@@ -66,15 +66,16 @@ function similarity(a, b) {
   return matches / Math.max(sa.length, sb.length);
 }
 
-// --- Qwen3-TTS via HTTP API ---
+// --- vLLM-Omni TTS via HTTP API ---
 function synthesize(text, outputPath) {
   return new Promise((resolve, reject) => {
     const url = new URL(TTS_URL);
     const body = JSON.stringify({
-      model: TTS_CFG.model || undefined,
       input: text,
+      voice: TTS_CFG.voice || 'papaya',
+      language: TTS_CFG.language || 'Chinese',
+      non_streaming_mode: true,
       response_format: TTS_CFG.response_format || 'wav',
-      language: TTS_CFG.language || undefined,
     });
     const mod = require(url.protocol === 'https:' ? 'https' : 'http');
     const req = mod.request(url, {
@@ -112,7 +113,16 @@ async function asrTranscribe(audioPath) {
 
 // --- Main ---
 (async () => {
-  console.log(`\nPhase 1: TTS synthesis (serial) — ${TOTAL} slides\n`);
+  // Phase 0: Warmup (first request triggers Triton compilation + CUDA Graph)
+  console.log(`\nPhase 0: TTS warmup (${TTS_CFG.warmup !== false ? 'enabled' : 'disabled'})\n`);
+  if (TTS_CFG.warmup !== false) {
+    const t0 = Date.now();
+    await synthesize('暖機測試。', path.join(audioDir, '_warmup.wav'));
+    try { fs.unlinkSync(path.join(audioDir, '_warmup.wav')); } catch (_) {}
+    console.log(`  Warmup done in ${((Date.now() - t0) / 1000).toFixed(1)}s\n`);
+  }
+
+  console.log(`Phase 1: TTS synthesis (serial) — ${TOTAL} slides\n`);
 
   // Phase 1: Serial TTS
   const slides = [];
