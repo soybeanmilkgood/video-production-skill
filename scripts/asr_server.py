@@ -9,6 +9,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ── vLLM ASR client ──
 import requests as req
+import opencc
+CONVERTER = opencc.OpenCC("s2t")
+
 VLLM_URL = "http://localhost:8002/v1/audio/transcriptions"
 
 def asr_vllm(wav_path: str) -> str:
@@ -16,7 +19,7 @@ def asr_vllm(wav_path: str) -> str:
     with open(wav_path, "rb") as f:
         r = req.post(VLLM_URL, files={"file": f}, data={"model": "Qwen/Qwen3-ASR-1.7B"}, timeout=120)
     r.raise_for_status()
-    return r.json()["text"]
+    return CONVERTER.convert(r.json()["text"])
 
 # ── ForcedAligner (lazy-loaded) ──
 ALIGNER = None
