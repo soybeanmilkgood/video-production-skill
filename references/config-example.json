@@ -15,11 +15,12 @@
     "concurrency": 4
   },
   "image": {
-    "provider": "ernie-image-turbo",
+    "provider": "z-image-turbo",
     "baseURL": "http://localhost:8080/v1",
-    "model": "ERNIE-Image-Turbo",
-    "size": "1536x1024",
-    "steps": 50
+    "model": "Z-Image-Turbo",
+    "size": "1024x576",
+    "steps": 8,
+    "cfgScale": 1.0
   },
   "chat": {
     "baseURL": "https://opencode.ai/zen/go/v1",

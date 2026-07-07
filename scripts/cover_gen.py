@@ -5,7 +5,7 @@ Usage:
   python cover_gen.py                              # reads cover_prompt.txt in cwd
   python cover_gen.py --dir my-proj [prompt]       # project directory
 
-Output: cover_raw.png (1536x1024). Then pad — do NOT crop — to 1280x720:
+Output: cover_raw.png (1024x576). Then pad — do NOT crop — to 1280x720:
 
   ffmpeg -y -i cover_raw.png -vf "scale=1080:720,pad=1280:720:100:0:color=white" thumbnail.png
 
@@ -50,7 +50,8 @@ def gen():
     print("gen cover...", flush=True)
     body = json.dumps({"model": MODEL, "prompt": PROMPT,
                        "size": SIZE, "n": 1, "response_format": "b64_json",
-                       "steps": IMG_CFG.get("steps", 50)}).encode()
+                       "steps": IMG_CFG.get("steps", 8),
+                       "cfg_scale": IMG_CFG.get("cfgScale", 1.0)}).encode()
     req = request.Request(f"{BASE_URL}/images/generations", data=body,
         headers={"Content-Type": "application/json"})
     with request.urlopen(req, timeout=300) as r:

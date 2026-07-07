@@ -13,7 +13,7 @@ Usage:
   python slides_gen.py 3 7            # regenerate only slides 3 and 7 (1-based)
   python slides_gen.py --dir my-proj  # project directory (default: cwd)
 
-Output: slides_raw/slide_NN.png (1536x1024). Pad to 1920x1080 afterwards with
+Output: slides_raw/slide_NN.png (1024x576). Pad to 1920x1080 afterwards with
 `node pad_and_burn.js pad`.
 
 Config in config.json:
@@ -56,7 +56,8 @@ def gen(i):  # i is 1-based
     print(f"[{i}] gen...", flush=True)
     body = json.dumps({"model": MODEL, "prompt": prompts[i-1],
                        "size": SIZE, "n": 1, "response_format": "b64_json",
-                       "steps": IMG_CFG.get("steps", 50)}).encode()
+                       "steps": IMG_CFG.get("steps", 8),
+                       "cfg_scale": IMG_CFG.get("cfgScale", 1.0)}).encode()
     req = request.Request(f"{BASE_URL}/images/generations", data=body,
         headers={"Content-Type": "application/json"})
     try:
