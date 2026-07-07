@@ -333,6 +333,11 @@ inside an English word. After SRT generation, **automatically burns subtitles in
 `video_sub.mp4`** (white text + black outline, `Noto Sans CJK TC`, 22pt).
 Style is configurable via `config.json` → `subtitles` (fontName, fontSize, marginV, outline).
 
+Subtitle generation includes three quality fixes:
+1. **Overlap fix** — adjacent entries' end is clamped to next.start
+2. **Short merge** — entries ≤5 chars are merged into the previous entry
+3. **Line width check** — entries wider than 42 CJK chars are auto-split
+
 > **video_sub.mp4 is the delivery file.** `video.mp4` is the intermediate.
 
 > ⚠️ **The #1 subtitle bug: drift from assuming clip duration = audio + padding.**

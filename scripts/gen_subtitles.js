@@ -108,7 +108,9 @@ function fmt(t){let ms=Math.round((t-Math.floor(t))*1000);let sec=Math.floor(t);
   });
 
   // Phase 2: Serial SRT generation (offset is cumulative)
-  let offset=0, srt='', idx=1;
+  // Build entries array first, then apply fixes, then serialize
+  let offset=0;
+  const rawEntries=[];
   for(let i=0;i<N;i++){
     const cd=clipDur(i);
     const s=allWords.find(x=>x.idx===i);
@@ -140,13 +142,89 @@ function fmt(t){let ms=Math.round((t-Math.floor(t))*1000);let sec=Math.floor(t);
       let st=offset+ timeAtChar(a);
       let en=offset+ (k===ch.length-1? speechEnd : timeAtChar(b));
       if(en-st<0.6) en=st+0.6;
-      srt+=`${idx++}\n${fmt(st)} --> ${fmt(en)}\n${c}\n\n`;
+      rawEntries.push({text:c,start:st,end:en,slide:i+1});
     }
     offset+=cd;
     console.log(`slide ${String(i+1).padStart(2,'0')}: clip=${cd.toFixed(2)}s words=${words.length} chunks=${ch.length}${s?.cached?' (cached)':''}`);
   }
+
+  // --- Quality fixes ---
+  // 1. Overlap fix: clamp end to next start
+  let fixCount=0;
+  for(let i=0;i<rawEntries.length-1;i++){
+    if(rawEntries[i].end>rawEntries[i+1].start){
+      rawEntries[i].end=rawEntries[i+1].start;
+      if(rawEntries[i].end<=rawEntries[i].start) rawEntries[i].end=rawEntries[i].start+0.1;
+      fixCount++;
+    }
+  }
+  if(fixCount>0) console.log(`  Fixed ${fixCount} overlaps`);
+
+  // 2. Merge short subtitles (<=4 chars) into previous entry
+  const MERGE_MIN=5;
+  const merged=[];
+  let mergeCount=0;
+  for(let i=0;i<rawEntries.length;i++){
+    const e=rawEntries[i];
+    const textLen=[...e.text].reduce((a,c)=>a+1,0); // JS char count for CJK
+    if(textLen<=MERGE_MIN && merged.length>0){
+      const prev=merged[merged.length-1];
+      prev.text+=e.text;
+      prev.end=e.end;
+      mergeCount++;
+    }else{
+      merged.push({...e});
+    }
+  }
+  if(mergeCount>0) console.log(`  Merged ${mergeCount} short subtitles (<=${MERGE_MIN} chars)`);
+
+  // 3. Post-merge overlap re-check
+  for(let i=0;i<merged.length-1;i++){
+    if(merged[i].end>merged[i+1].start){
+      merged[i].end=merged[i+1].start;
+      if(merged[i].end<=merged[i].start) merged[i].end=merged[i].start+0.1;
+    }
+  }
+
+  // 4. Line width check and split
+  function cjkW(t){return [...t].reduce((w,c)=>w+(c.charCodeAt(0)>127?2:1),0);}
+  function splitW(text,maxW){
+    if(cjkW(text)<=maxW) return text;
+    const chars=[...text];
+    let l1='',w1=0;
+    for(let ci=0;ci<chars.length;ci++){
+      const cw=chars[ci].charCodeAt(0)>127?2:1;
+      if(w1+cw>maxW) break;
+      l1+=chars[ci]; w1+=cw;
+    }
+    let l2='',w2=0;
+    for(let ci=l1.length;ci<chars.length;ci++){
+      const cw=chars[ci].charCodeAt(0)>127?2:1;
+      if(w2+cw>maxW) break;
+      l2+=chars[ci]; w2+=cw;
+    }
+    let l3=chars.slice(l1.length+l2.length).join('');
+    if(l3) return l1+'\n'+l2+'\n'+l3;
+    return l1+'\n'+l2;
+  }
+  const MAX_W=42;
+  let splitCount=0;
+  for(let i=0;i<merged.length;i++){
+    const e=merged[i];
+    if(cjkW(e.text)>MAX_W){
+      e.text=splitW(e.text,MAX_W);
+      splitCount++;
+    }
+  }
+  if(splitCount>0) console.log(`  Split ${splitCount} wide lines (>${MAX_W} CJK)`);
+
+  // 5. Serialize to SRT
+  let srt='',idx=1;
+  for(const e of merged){
+    srt+=`${idx++}\n${fmt(e.start)} --> ${fmt(e.end)}\n${e.text}\n\n`;
+  }
   fs.writeFileSync(path.join(DIR,'subtitles_aligned.srt'), '\ufeff'+srt, 'utf8');
-  console.log(`\nSRT written. total video offset=${offset.toFixed(2)}s`);
+  console.log(`\nSRT written. total entries=${merged.length} video offset=${offset.toFixed(2)}s`);
 
   // --- Burn subtitles into video ---
   const videoPath=path.join(DIR,'video.mp4');
