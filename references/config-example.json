@@ -1,11 +1,13 @@
 {
   "tts": {
-    "provider": "qwen3-tts",
+    "provider": "qwen3-tts-voice-clone",
     "baseURL": "http://localhost:8001/v1",
-    "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-    "voice": "vivian",
+    "model": "qwen3-tts-base17b",
+    "modelPath": "/home/rong/AI/vllm/models/qwen3-tts/qwen3-tts-base17b",
+    "refAudio": "/home/rong/AI/vllm/models/qwen3-tts/clone_audio/ref_clip.wav",
+    "refText": "/home/rong/AI/vllm/models/qwen3-tts/clone_audio/ref_text.txt",
+    "language": "Auto",
     "response_format": "wav",
-    "speed": 1.0,
     "maxRetries": 5
   },
   "asr": {

@@ -73,9 +73,7 @@ function synthesize(text, outputPath) {
     const body = JSON.stringify({
       model: TTS_CFG.model || undefined,
       input: text,
-      voice: TTS_CFG.voice || 'vivian',
       response_format: TTS_CFG.response_format || 'wav',
-      speed: TTS_CFG.speed ?? 1.0,
       language: TTS_CFG.language || undefined,
     });
     const mod = require(url.protocol === 'https:' ? 'https' : 'http');

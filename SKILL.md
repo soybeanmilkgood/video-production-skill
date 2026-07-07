@@ -38,7 +38,10 @@ Distilled from producing 40+ real videos for an AI-run YouTube channel (蝦說 A
   - **sd-server** (:8080, GPU 0) — Z-Image-Turbo image generation
     - Model: `z_image_turbo-Q4_K.gguf` + `ae.safetensors` VAE + `Qwen3-4B-UD-Q4_K_XL.gguf` text encoder
     - 8 steps, cfg-scale 1.0, ~8s per image
-  - **TTS server** (:8001, GPU 0) — Qwen3-TTS synthesis, conda env `qwen3-tts`
+  - **TTS server** (:8001, GPU 0) — Qwen3-TTS base17b Voice Clone
+    - Model: `qwen3-tts-base17b` + reference audio voice cloning
+    - Reference: `clone_audio/ref_clip.wav` (18s target voice) + `ref_text.txt`
+    - Clone prompt preloaded at startup; each synthesis ~2-10s
   - **vLLM ASR** (:8002, GPU 1) — Qwen3-ASR-1.7B text transcription, conda env `breeze-asr-v2`
   - **ASR Server** (:8012, GPU 1) — ForcedAligner 0.6B word timestamps, conda env `qwen3-asr`
 - A **TTS voice**: set `tts.voice` in `config.json` (e.g. `vivian`, `ryan`, `aiden`).
@@ -126,8 +129,9 @@ entire batch of videos.
   --diffusion-fa \
   --listen-port 8080
 
-# Terminal 2: TTS server (GPU 0)
-bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate qwen3-tts && python3 -u /tmp/tts_server.py'
+# Terminal 2: TTS server — Voice Clone (Qwen3-TTS base17b, GPU 0)
+bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate qwen3-tts && \
+  python3 -u scripts/tts_server.py'
 
 # Terminal 3: vLLM ASR (GPU 1, text transcription)
 bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate breeze-asr-v2 && \
