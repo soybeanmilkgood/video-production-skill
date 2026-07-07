@@ -2,27 +2,38 @@
    for display (ASR output mishears — never use it as subtitle text).
    Offsets come from ACTUAL clip durations (ffprobe on temp/clip_XX.mp4), which avoids
    the -shortest drift bug (assuming audioDur+padding drifts +1s per slide).
+   Word timings are fetched concurrently (configurable via asr.concurrency).
 
    Usage: node gen_subtitles.js [project_dir]
-   Needs: config.json with asr.condaEnv / asr.model / asr.forcedAligner,
-   temp/clip_XX.mp4 from assemble.js, audio/slide_XX.wav, narration.json.
+   Needs: config.json with asr.baseURL, audio/slide_XX.wav, narration.json,
+   temp/clip_XX.mp4 from assemble.js.
    Word timings are cached in temp/words_NN.json (re-runs are free). */
 const fs=require('fs'),path=require('path'),{execSync}=require('child_process');
 const DIR=path.resolve(process.argv[2]||process.cwd());
 const cfgP=path.join(DIR,'config.json');
 const cfg=fs.existsSync(cfgP)?JSON.parse(fs.readFileSync(cfgP,'utf8')):{};
 const ASR_CFG=cfg.asr||{};
+const CONCURRENCY=ASR_CFG.concurrency||4;
 const FFPROBE=cfg.ffprobe||'ffprobe';
 const narration=JSON.parse(fs.readFileSync(path.join(DIR,'narration.json'),'utf8'));
 const N=narration.length;
 
-if(!ASR_CFG.condaEnv){console.error('ERROR: asr.condaEnv not set in config.json');process.exit(1);}
+// --- asyncPool ---
+async function asyncPool(limit,items,fn){
+  const r=[]; const ex=[];
+  for(let i=0;i<items.length;i++){
+    const p=Promise.resolve().then(()=>fn(items[i],i));
+    const e=p.then(v=>{r[i]=v;});
+    ex.push(e);
+    if(ex.length>=limit){await Promise.race(ex);ex.splice(ex.findIndex(x=>x===p),1);}
+  }
+  await Promise.all(ex); return r;
+}
 
 function clipDur(i){const p=path.join(DIR,'temp',`clip_${String(i+1).padStart(2,'0')}.mp4`);return parseFloat(execSync(`"${FFPROBE}" -v error -show_entries format=duration -of csv=p=0 "${p}"`,{encoding:'utf8'}).trim());}
 
 async function asrWords(audioPath, knownText){
-  const fs2=require('fs');
-  const buf=fs2.readFileSync(audioPath);
+  const buf=fs.readFileSync(audioPath);
   const fd=new FormData();
   fd.append('file',new Blob([buf]),'audio.wav');
   fd.append('return_timestamps','true');
@@ -48,7 +59,7 @@ function splitTokens(text){
 }
 // display width: CJK = 1, Latin/space = 0.5 (max 16 full-width per line to avoid wrapping)
 function dw(s){let w=0;for(const c of s)w+= c.charCodeAt(0)<=0xff?0.5:1; return w;}
-function capSplit(s,maxw){ // split s into pieces of width<=maxw, never inside a Latin run
+function capSplit(s,maxw){
   const parts=[]; let cur='', curw=0;
   for(let i=0;i<s.length;i++){
     let seg=s[i];
@@ -77,19 +88,40 @@ function chunks(text){
 function fmt(t){let ms=Math.round((t-Math.floor(t))*1000);let sec=Math.floor(t);if(ms>=1000){ms-=1000;sec+=1;}const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;}
 
 (async()=>{
+  // Phase 1: Concurrent ASR timestamp fetch
+  console.log(`Fetching timestamps for ${N} slides (concurrency=${CONCURRENCY})...`);
+  const slides=Array.from({length:N},(_,i)=>({idx:i,wav:path.join(DIR,'audio',`slide_${String(i+1).padStart(2,'0')}.wav`),text:narration[i]}));
+  const caches=slides.map(s=>({...s,cacheP:path.join(DIR,'temp',`words_${String(s.idx+1).padStart(2,'0')}.json`)}));
+
+  const allWords=await asyncPool(CONCURRENCY,caches,async(s)=>{
+    if(fs.existsSync(s.cacheP)){
+      return {...s,words:JSON.parse(fs.readFileSync(s.cacheP,'utf8')),cached:true};
+    }
+    try {
+      const words=await asrWords(s.wav,s.text);
+      fs.writeFileSync(s.cacheP,JSON.stringify(words));
+      return {...s,words,cached:false};
+    }catch(e){
+      console.log(`slide ${s.idx+1} asr err: ${e.message} — proportional fallback`);
+      return {...s,words:[],cached:false};
+    }
+  });
+
+  // Phase 2: Serial SRT generation (offset is cumulative)
   let offset=0, srt='', idx=1;
   for(let i=0;i<N;i++){
     const cd=clipDur(i);
-    const wav=path.join(DIR,'audio',`slide_${String(i+1).padStart(2,'0')}.wav`);
-    const cacheP=path.join(DIR,'temp',`words_${String(i+1).padStart(2,'0')}.json`);
-    let words=[];
-    if(fs.existsSync(cacheP)){ words=JSON.parse(fs.readFileSync(cacheP,'utf8')); }
-    else { try{words=await asrWords(wav,narration[i]);fs.writeFileSync(cacheP,JSON.stringify(words));}catch(e){console.log(`slide ${i+1} asr err: ${e.message} — falling back to proportional timing`);} }
+    const s=allWords.find(x=>x.idx===i);
+    const words=s?.words||[];
+    const wav=slides[i].wav;
+    const cacheP=caches[i].cacheP;
+    if(!s?.cached && words.length>0) fs.writeFileSync(cacheP,JSON.stringify(words));
+
     const speechStart = words.length? Math.max(0, words[0].start-0.05):0;
     const speechEnd = words.length? Math.min(cd, words[words.length-1].end):cd;
     const span = Math.max(0.5, speechEnd-speechStart);
     const ch = chunks(narration[i]);
-    const strip2=(s)=>s.replace(/\s+/g,'');
+    const strip2=(s_)=>s_.replace(/\s+/g,'');
     const totalChars = ch.reduce((a,c)=>a+strip2(c).length,0)||1;
     const flat=[];
     for(const w of words){
@@ -111,7 +143,7 @@ function fmt(t){let ms=Math.round((t-Math.floor(t))*1000);let sec=Math.floor(t);
       srt+=`${idx++}\n${fmt(st)} --> ${fmt(en)}\n${c}\n\n`;
     }
     offset+=cd;
-    console.log(`slide ${String(i+1).padStart(2,'0')}: clip=${cd.toFixed(2)}s words=${words.length} chunks=${ch.length}`);
+    console.log(`slide ${String(i+1).padStart(2,'0')}: clip=${cd.toFixed(2)}s words=${words.length} chunks=${ch.length}${s?.cached?' (cached)':''}`);
   }
   fs.writeFileSync(path.join(DIR,'subtitles_aligned.srt'), '\ufeff'+srt, 'utf8');
   console.log(`\nSRT written. total video offset=${offset.toFixed(2)}s`);

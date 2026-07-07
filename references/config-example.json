@@ -11,7 +11,8 @@
   "asr": {
     "provider": "qwen3-asr",
     "baseURL": "http://localhost:8012",
-    "passThreshold": 0.85
+    "passThreshold": 0.85,
+    "concurrency": 4
   },
   "image": {
     "provider": "ernie-image-turbo",

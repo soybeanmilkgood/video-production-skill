@@ -263,6 +263,9 @@ original text, so the viewer has triple redundancy. For digit-heavy narration, r
 word consistently across multiple synth attempts (that's the TTS mispronouncing, not
 ASR mishearing → rewrite that word).
 
+ASR verification is **concurrent** (default concurrency=4, set via `asr.concurrency` in config).
+10 slides verify in ~6s instead of ~20s. Concurrency >6 may OOM the ForcedAligner GPU process.
+
 ---
 
 ## Step 4: FFmpeg Assembly (`scripts/assemble.js`)

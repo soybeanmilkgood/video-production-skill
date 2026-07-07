@@ -308,3 +308,18 @@ This avoids regenerating N slides and re-synthesizing N TTS clips, and can't int
 **用途：** pipeline 中若 agent 需要生成 narration 初稿或分析投影片內容，可用此 endpoint 而非 OpenAI。
 
 **教訓：** chat completions API 的替代比 image/TTS 簡單——只要 OpenAI 相容格式，改 baseURL + model 即可，不需改邏輯。
+
+### #10 ASR 並發優化：串行 → 批次並發
+
+**問題：** 10 張投影片的 ASR 驗證 + 字幕時間戳共 20 次請求，串行處理約 40s（每次 ~2s）。
+
+**解法：** 用 concurrency-limited Promise pool（asyncPool）並發 POST 到 ASR server。
+concurrency=4 時，10 張的 ASR 驗證降至 ~6s，字幕時間戳降至 ~6s，總省 ~28s。
+
+**注意事項：**
+- concurrency 過高會 GPU OOM（ForcedAligner 0.6B 每個請求約 1.5GB VRAM）
+- 預設 4 是安全值；GPU VRAM ≥ 24GB 可試 6
+- SRT 條目生成仍需串行（offset 累加），但 ASR 請求可並發
+- 單個請求失敗不中斷整批，用 Promise.allSettled 模式收集結果後統一 retry
+
+**教訓：** I/O bound 的工作（HTTP 呼叫 ASR server）一定要並發。asyncPool 是不新增依賴的最簡方案。

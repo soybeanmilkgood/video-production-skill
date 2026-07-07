@@ -1,59 +1,61 @@
 /**
- * TTS + ASR Verification Script (Local Edition)
+ * TTS + ASR Verification Script (Local Edition, Concurrent ASR)
  *
- * Reads narration.json from the project directory, synthesizes each entry
- * via Qwen3-TTS HTTP API, and verifies with Qwen3-ASR (qwen_asr library).
+ * Phase 1: Serial TTS synthesis for all slides
+ * Phase 2: Concurrent ASR verification (configurable concurrency)
+ * Phase 3: Serial retry of failed slides
  *
  * Usage: node tts_with_asr.js [project_dir]
- *   - project_dir: directory containing narration.json (default: CWD)
- *
- * config.json in project_dir:
- *   { "tts": { "baseURL": "http://localhost:8001/v1", "model": "...",
- *              "voice": "vivian", "maxRetries": 5 },
- *     "asr": { "condaEnv": "qwen3-asr", "model": "Qwen/Qwen3-ASR-1.7B",
- *              "forcedAligner": "Qwen/Qwen3-ForcedAligner-0.6B", "passThreshold": 0.85 } }
  */
-
 const fs = require('fs');
 const path = require('path');
 
-// --- Resolve project directory ---
 const PROJECT_DIR = path.resolve(process.argv[2] || process.cwd());
-
-// --- Load config ---
 const CONFIG_PATH = path.join(PROJECT_DIR, 'config.json');
 const config = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) : {};
-
 const TTS_CFG = config.tts || {};
 const ASR_CFG = config.asr || {};
 const PASS_THRESHOLD = ASR_CFG.passThreshold || 0.85;
 const MAX_RETRIES = TTS_CFG.maxRetries || 5;
+const CONCURRENCY = ASR_CFG.concurrency || 4;
 
 if (!TTS_CFG.baseURL) { console.error('ERROR: tts.baseURL not set in config.json'); process.exit(1); }
 const TTS_URL = `${TTS_CFG.baseURL.replace(/\/+$/, '')}/audio/speech`;
 
-if (!ASR_CFG.condaEnv) { console.error('ERROR: asr.condaEnv not set in config.json'); process.exit(1); }
-
-// --- Load narration ---
-const narrationPath = path.join(PROJECT_DIR, 'narration.json');
-if (!fs.existsSync(narrationPath)) {
-  console.error(`ERROR: narration.json not found in ${PROJECT_DIR}`);
-  process.exit(1);
-}
-const narration = JSON.parse(fs.readFileSync(narrationPath, 'utf8'));
+const NARR_PATH = path.join(PROJECT_DIR, 'narration.json');
+if (!fs.existsSync(NARR_PATH)) { console.error(`ERROR: narration.json not found`); process.exit(1); }
+const narration = JSON.parse(fs.readFileSync(NARR_PATH, 'utf8'));
+const TOTAL = narration.length;
 
 const audioDir = path.join(PROJECT_DIR, 'audio');
 if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
 
 console.log(`Project: ${PROJECT_DIR}`);
-console.log(`Slides: ${narration.length} | TTS: ${TTS_CFG.model || 'default'} | Threshold: ${PASS_THRESHOLD}`);
+console.log(`Slides: ${TOTAL} | TTS: ${TTS_CFG.model || 'default'} | Threshold: ${PASS_THRESHOLD} | Concurrency: ${CONCURRENCY}`);
 console.log('---');
 
-// --- Similarity: character overlap ratio ---
+// --- asyncPool: concurrency-limited Promise pool ---
+async function asyncPool(limit, items, fn) {
+  const results = [];
+  const executing = [];
+  for (let i = 0; i < items.length; i++) {
+    const p = Promise.resolve().then(() => fn(items[i], i));
+    const e = p.then(r => { results[i] = r; });
+    executing.push(e);
+    if (executing.length >= limit) {
+      await Promise.race(executing);
+      executing.splice(executing.findIndex(e => e === p), 1);
+    }
+  }
+  await Promise.all(executing);
+  return results;
+}
+
+// --- Similarity ---
 function similarity(a, b) {
   if (!a || !b) return 0;
-  const sa = a.replace(/[\s\p{P}]/gu, '');
-  const sb = b.replace(/[\s\p{P}]/gu, '');
+  const sa = a.replace(/[\s!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~]/g, '');
+  const sb = b.replace(/[\s!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~]/g, '');
   if (!sa || !sb) return 0;
   let matches = 0;
   const bChars = sb.split('');
@@ -76,8 +78,8 @@ function synthesize(text, outputPath) {
       speed: TTS_CFG.speed ?? 1.0,
       language: TTS_CFG.language || undefined,
     });
-    const https = require(url.protocol === 'https:' ? 'https' : 'http');
-    const req = https.request(url, {
+    const mod = require(url.protocol === 'https:' ? 'https' : 'http');
+    const req = mod.request(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
     }, res => {
@@ -97,9 +99,8 @@ function synthesize(text, outputPath) {
   });
 }
 
-// --- Qwen3-ASR via HTTP server (port 8012) ---
+// --- ASR via HTTP ---
 async function asrTranscribe(audioPath) {
-  const fs = require('fs');
   const buffer = fs.readFileSync(audioPath);
   const form = new FormData();
   form.append('file', new Blob([buffer]), 'audio.wav');
@@ -111,53 +112,73 @@ async function asrTranscribe(audioPath) {
   return data.text;
 }
 
-// --- Process one slide ---
-async function processSlide(idx) {
-  const num = String(idx + 1).padStart(2, '0');
-  const text = narration[idx];
-  const outPath = path.join(audioDir, `slide_${num}.wav`);
+// --- Main ---
+(async () => {
+  console.log(`\nPhase 1: TTS synthesis (serial) — ${TOTAL} slides\n`);
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    console.log(`[${num}/${String(narration.length).padStart(2, '0')}] Attempt ${attempt}/${MAX_RETRIES}...`);
-
+  // Phase 1: Serial TTS
+  const slides = [];
+  for (let i = 0; i < TOTAL; i++) {
+    const num = String(i + 1).padStart(2, '0');
+    const text = narration[i];
+    const outPath = path.join(audioDir, `slide_${num}.wav`);
+    console.log(`[${num}/${String(TOTAL).padStart(2, '0')}] TTS...`);
     try {
       await synthesize(text, outPath);
       const size = fs.statSync(outPath).size;
-      console.log(`  TTS OK: ${Math.round(size / 1024)} KB`);
-
-      console.log(`  ASR verifying...`);
-      const transcript = asrTranscribe(outPath);
-      const sim = similarity(text, transcript);
-      console.log(`  Similarity: ${(sim * 100).toFixed(1)}%`);
-
-      if (sim >= PASS_THRESHOLD) {
-        console.log(`  ✅ PASS`);
-        return true;
-      } else {
-        console.log(`  ❌ FAIL (need ≥${(PASS_THRESHOLD * 100).toFixed(0)}%)`);
-        console.log(`  Original: ${text.substring(0, 60)}...`);
-        console.log(`  ASR got:  ${transcript.substring(0, 60)}...`);
-      }
+      console.log(`  → ${Math.round(size / 1024)} KB`);
+      slides.push({ idx: i, num, text, path: outPath });
     } catch (err) {
-      console.log(`  ERROR: ${err.message}`);
+      console.log(`  ❌ TTS failed: ${err.message}`);
     }
   }
 
-  console.log(`  ⚠️ Keeping best attempt after ${MAX_RETRIES} tries`);
-  return false;
-}
+  if (slides.length === 0) { console.error('No slides generated, aborting.'); process.exit(1); }
 
-// --- Main ---
-(async () => {
-  console.log(`\nStarting TTS+ASR for ${narration.length} slides\n`);
-  let passed = 0, failed = 0;
+  // Phase 2: Concurrent ASR verification
+  console.log(`\nPhase 2: ASR verification (concurrency=${CONCURRENCY})\n`);
+  const results = await asyncPool(CONCURRENCY, slides, async (slide) => {
+    const transcript = await asrTranscribe(slide.path);
+    const sim = similarity(slide.text, transcript);
+    const passed = sim >= PASS_THRESHOLD;
+    const status = passed ? '✅' : '❌';
+    console.log(`[ASR] ${slide.num}/${TOTAL}: ${(sim * 100).toFixed(1)}% ${status}`);
+    if (!passed) {
+      console.log(`  Original: ${slide.text.substring(0, 60)}...`);
+      console.log(`  ASR got:  ${transcript.substring(0, 60)}...`);
+    }
+    return { ...slide, transcript, sim, passed, retries: 0 };
+  });
 
-  for (let i = 0; i < narration.length; i++) {
-    const ok = await processSlide(i);
-    if (ok) passed++; else failed++;
+  // Phase 3: Retry failed slides (serial, with maxRetries)
+  let final = results;
+  const failed = results.filter(r => !r.passed);
+  if (failed.length > 0) {
+    console.log(`\nPhase 3: Retrying ${failed.length} failed slide(s)\n`);
+    for (const slide of failed) {
+      const num = slide.num;
+      for (let attempt = 2; attempt <= MAX_RETRIES; attempt++) {
+        console.log(`[${num}/${TOTAL}] Retry ${attempt}/${MAX_RETRIES}...`);
+        try {
+          await synthesize(slide.text, slide.path);
+          const transcript = await asrTranscribe(slide.path);
+          const sim = similarity(slide.text, transcript);
+          const passed = sim >= PASS_THRESHOLD;
+          console.log(`[ASR] ${num}/${TOTAL}: ${(sim * 100).toFixed(1)}% ${passed ? '✅' : '❌'}`);
+          if (passed) { slide.passed = true; slide.sim = sim; slide.retries = attempt - 1; break; }
+        } catch (err) {
+          console.log(`  ERROR: ${err.message}`);
+        }
+      }
+    }
   }
 
+  const passedCount = final.filter(r => r.passed).length;
+  const failedCount = final.filter(r => !r.passed).length;
+
   console.log(`\n${'='.repeat(40)}`);
-  console.log(`Done! Passed: ${passed}, Failed: ${failed}, Total: ${narration.length}`);
-  if (failed > 0) console.log(`⚠️ ${failed} slide(s) did not meet ASR threshold — see SKILL.md "verify the words, ship on redundancy" before re-rolling forever.`);
+  console.log(`Done! Passed: ${passedCount}, Failed: ${failedCount}, Total: ${TOTAL}`);
+  if (failedCount > 0) {
+    console.log(`⚠️ ${failedCount} slide(s) did not meet ASR threshold — check for homophone false alarms before re-rolling forever.`);
+  }
 })();
