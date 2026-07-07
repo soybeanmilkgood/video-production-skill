@@ -1,0 +1,8 @@
+{
+  "style": "White background, hand-drawn lecture style. Bold black title top-left with underline. Thin black arrows and diagrams. Lots of whitespace. A small cute mascot in bottom-right corner. Stick figures only, no real faces.",
+  "slides": [
+    "白底手繪教學風。左上角用粗黑字寫大標題「什麼是大型語言模型」。標題下方畫一個大腦的簡筆畫，用箭頭指向一個晶片圖示。右下角小吉祥物。底部小字寫：簡單來說，LLM 就是會說話的 AI。所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。數字要正確。",
+    "白底手繪教學風。左上角粗黑字寫「LLM 的訓練方式」。中央用三個箭頭串起三個步驟方框：第一步「大量文字」→ 第二步「預測下一個詞」→ 第三步「學會語法與知識」。每個方框下方有一行中文說明。所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。",
+    "白底手繪教學風。左上角粗黑字寫「總結與應用」。中央列出三個應用圖示：翻譯、問答、寫程式，各附一行中文說明。下方用粗體寫：「LLM 正在改變世界」。右下角小吉祥物揮手。所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。"
+  ]
+}

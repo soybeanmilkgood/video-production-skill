@@ -1,0 +1,17 @@
+{
+  "image": {
+    "baseURL": "http://localhost:8080/v1",
+    "model": "sd-cpp-local",
+    "size": "1536x1024",
+    "steps": 50
+  },
+  "video": {
+    "width": 1920,
+    "height": 1080
+  },
+  "branding": {
+    "watermark": "🎬 測試影片"
+  },
+  "ffmpeg": "ffmpeg",
+  "ffprobe": "ffprobe"
+}
