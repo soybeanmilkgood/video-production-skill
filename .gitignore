@@ -10,3 +10,4 @@ verify*.png
 cover_raw.png
 thumbnail.*
 __pycache__/
+fix_gguf.py

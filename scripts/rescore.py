@@ -40,7 +40,7 @@ def transcribe(mp3):
     parts = []
     def add(name, val):
         parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{val}\r\n".encode())
-    parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.mp3\"\r\nContent-Type: audio/mpeg\r\n\r\n".encode())
+    parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\n".encode())
     parts.append(data); parts.append(b"\r\n")
     add("model", "whisper-1"); add("language", "zh")
     parts.append(f"--{boundary}--\r\n".encode())
@@ -70,7 +70,7 @@ def digits_in(s):
 results = []
 for i, text in enumerate(narration):
     n = i + 1
-    mp3 = PROJ / "audio" / f"slide_{n:02d}.mp3"
+    mp3 = PROJ / "audio" / f"slide_{n:02d}.wav"
     cache = PROJ / "temp" / f"asr_full_{n:02d}.txt"
     if cache.exists():
         tr = cache.read_text(encoding="utf-8")

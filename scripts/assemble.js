@@ -59,7 +59,7 @@ const clips = [];
 for (let i = 1; i <= slideCount; i++) {
   const num = String(i).padStart(2, '0');
   const imgPath = path.join(SLIDES_DIR, `slide_${num}.png`);
-  const audioPath = path.join(AUDIO_DIR, `slide_${num}.mp3`);
+  const audioPath = path.join(AUDIO_DIR, `slide_${num}.wav`);
   const clipPath = path.join(TEMP_DIR, `clip_${num}.mp4`);
   
   if (!fs.existsSync(imgPath)) { console.error(`Missing: ${imgPath}`); process.exit(1); }
@@ -72,7 +72,7 @@ for (let i = 1; i <= slideCount; i++) {
   
   execSync(
     `"${FFMPEG}" -y -loop 1 -i "${imgPath}" -i "${audioPath}" ` +
-    `-c:v libx264 -tune stillimage -c:a aac -b:a ${AUDIO_BITRATE} ` +
+    `-c:v libx264 -tune stillimage -c:a aac -ar 44100 -b:a ${AUDIO_BITRATE} ` +
     `-pix_fmt yuv420p -t ${totalDur.toFixed(2)} -shortest "${clipPath}"`,
     { stdio: 'pipe' }
   );

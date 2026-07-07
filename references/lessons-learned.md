@@ -228,3 +228,83 @@ This avoids regenerating N slides and re-synthesizing N TTS clips, and can't int
 **Cloned-voice onset-swallow:** some engines randomly swallow the short phrase before the first comma of a sentence. Fix = rewrite those sentences to start with a disposable filler (「原來，…」「後來，…」) so a swallowed onset loses nothing; then best-of-N and pick the attempt with complete onset + highest similarity.
 
 **Note on `assemble.js` `-loop 1 ... -shortest`:** the clip gets cut at audio length (configured padding does NOT extend it). Inter-slide gaps = trailing silence of one clip + leading silence of the next. Subtitle offsets using actual clip lengths are immune to this.
+
+---
+
+## Local API Migration（2026-07）
+
+從 ElevenLabs + OpenAI（gpt-image-2 + Whisper）全部遷移到本地 Qwen 生態系。
+以下是踩過的坑，每一條都是真的遇到才寫的。
+
+### #1 ERNIE-Image-Turbo 的正確 VAE 組合
+
+**問題：** 一開始用 `qwen_image_vae.safetensors`，生成的圖片全黑或色彩崩壞。
+
+**原因：** ERNIE-Image-Turbo 的 VAE 與 Qwen-Image 的 VAE 不同。
+
+**解法：** 正確組合是 `ernie-image-turbo-Q4_K_M.gguf` + **`flux2-vae.safetensors`** + `ministral-3-3b.safetensors`（文字編碼器）。不需修改 sd.cpp 原始碼。
+
+**教訓：** 擴散模型的 VAE 不是通用的。換模型時先查清楚配對的 VAE，不要假設同一系列的 VAE 通用。
+
+### #2 sd.cpp Tensor Prefix 不需改
+
+**問題：** 擔心 sd.cpp 的 `"vae."` prefix 與模型內部 `first_stage_model.` 不匹配。
+
+**結果：** 搭配 flux2-vae 時，sd.cpp 原始碼的 `"vae."` prefix 可正常運作，**不需改動原始碼**。
+
+**教訓：** 先試預設值，不要預設要改 code。VAE 前綴問題通常是 VAE 檔案選錯，不是 code 的問題。
+
+### #3 ComfyUI 匯出的 GGUF 缺 Prefix
+
+**問題：** 從 ComfyUI 匯出的 GGUF 檔案缺少 `model.diffusion_model.` prefix，sd-server 載入失敗。
+
+**解法：** 使用 leejet 官方發布的 ERNIE-Image GGUF，可被 sd.cpp 直接讀取。或在匯出時選擇 sd.cpp 相容的 tensor naming convention。
+
+**教訓：** GGUF 來源很重要。ComfyUI 匯出的 GGUF 與 sd.cpp 的 GGUF 格式可能有 prefix 差異。優先用 sd.cpp 官方相容的版本。
+
+### #4 Qwen3-TTS 輸出 24kHz WAV，不是 44100Hz MP3
+
+**問題：** 原本 pipeline 預期 ElevenLabs 的 44100Hz MP3。Qwen3-TTS 輸出 24000Hz WAV，assemble.js 搜尋 `.mp3` 找不到檔案直接報錯。
+
+**解法：**
+1. `tts_with_asr.js` 存檔副檔名改 `.wav`
+2. `assemble.js` 搜尋 `.wav`
+3. `assemble.js` 的 ffmpeg 指令加 `-ar 44100` 統一重採樣
+
+**教訓：** 換 TTS 引擎時，一定要查輸出格式（container + sample rate + channel）。assemble.js 現在對音訊格式有隱含假設，換 provider 時連帶要改的檔案不只 TTS 腳本本身。
+
+### #5 ASR conda subprocess 載入成本
+
+**問題：** `qwen_asr` 每次 spawnSync 調用都要重新載入模型，首次 ~13s。10 張投影片 × 2 次（驗證 + 字幕）= 20 次載入 = ~4 分鐘純載入時間。
+
+**緩解：** 模型載入後 conda 環境駐留在記憶體中，後續呼叫較快。但仍比 HTTP API（Whisper）慢。
+
+**未來改進方向：** 將 qwen_asr 包裝成常駐 HTTP server（類似 TTS 的做法），避免重複載入。或用 vLLM 的 `/v1/audio/transcriptions` 端點（Qwen3-ASR 已被 vLLM 支援）。
+
+**教訓：** subprocess 模式適合 demo 驗證，但正式量產建議改成常駐服務。
+
+### #6 破音字 false alarm 大幅降低
+
+**問題：** 原本 OpenAI Whisper 對繁體中文有大量 Simplified/Traditional 誤判，需要 `rescore.py` 做拼音比對第二道防線。
+
+**結果：** Qwen3-ASR 原生輸出繁體中文，Simplified/Traditional 誤判問題基本消除。Demo pipeline 3/3 ASR similarity ≥ 96.6%，正式影片 10/10 ≥ 89.6%。
+
+**教訓：** 換成原生中文 ASR 後，rescore.py 觸發機率極低但仍保留作為安全網。不要刪除——等跑過 20+ 支影片確認穩定再考慮。
+
+### #7 ERNIE-Image-Turbo Sampling Steps 建議 ≥ 50
+
+**問題：** 預設 steps 太低時，生成的中文字容易出現亂碼或缺筆畫。
+
+**調整：** sampling steps 提高到 50 後，文字清晰度顯著提升。低於 30 steps 不可接受。
+
+**代價：** 50 steps 約 50s/張（vs 低 steps 約 20s/張）。10 張投影片 = ~8 分鐘，可接受。
+
+**教訓：** 含中文字的圖片生成對 steps 敏感度高於純風景圖。文字渲染需要更多擴散步驟才能收斂。config.json 已加入 `image.steps` 欄位，預設 50。
+
+### #8 opencode-go 作為 LLM 後端
+
+**發現：** opencode-go/deepseek-v4-flash 可作為 OpenAI chat completions 的替代，endpoint `https://opencode.ai/zen/go/v1/chat/completions`，OpenAI 相容格式。
+
+**用途：** pipeline 中若 agent 需要生成 narration 初稿或分析投影片內容，可用此 endpoint 而非 OpenAI。
+
+**教訓：** chat completions API 的替代比 image/TTS 簡單——只要 OpenAI 相容格式，改 baseURL + model 即可，不需改邏輯。

@@ -1,6 +1,6 @@
 ---
 name: video-production
-description: "AI educational video production pipeline. Use when producing lecture videos, tutorial videos, or educational content. Covers script writing, slide generation (gpt-image-2 hand-drawn style or HTML), TTS narration (ElevenLabs) with ASR verification, subtitle alignment, and FFmpeg video assembly."
+description: "AI educational video production pipeline. Use when producing lecture videos, tutorial videos, or educational content. Covers script writing, slide generation (local image model), TTS narration (Qwen3-TTS) with ASR verification (Qwen3-ASR), subtitle alignment, and FFmpeg video assembly."
 ---
 
 # Video Production Skill
@@ -16,26 +16,30 @@ Distilled from producing 40+ real videos for an AI-run YouTube channel (蝦說 A
 0. Read references/teaching-style.md + references/narration-style.md (content quality rules)
 1. Create project directory and cd into it; copy config.json from references/config-example.json and fill it in
 2. Write narration.json (the script — one string per slide)
-3. Generate slides (Path A: gpt-image-2 hand-drawn / Path B: HTML + Playwright screenshot)
+3. Generate slides (Path A: local image model + sd-server / Path B: HTML + Playwright screenshot)
 4. Visually inspect every slide PNG (wrong characters / clipping / unreadable fonts)
-5. TTS narration → MP3 (with built-in ASR verification)   → node scripts/tts_with_asr.js
+5. TTS narration → WAV (with built-in ASR verification)   → node scripts/tts_with_asr.js
 6. FFmpeg assemble → video.mp4                            → node scripts/assemble.js
 7. Quality check (bitrate + frame extraction + visual)
 8. Subtitles → SRT (+ optional burn-in)                   → node scripts/gen_subtitles.js
 9. Cover image → thumbnail                                → python scripts/cover_gen.py
 10. Upload wherever you publish; verify the thumbnail and visibility after upload
+
+> 💡 **Qwen3-ASR 原生輸出繁體中文**，Simplified/Traditional 誤判問題已消除。
 ```
 
 ## Requirements
 
 - **Node.js** ≥ 18 (scripts use only built-ins + `playwright` for HTML screenshots)
-- **Python** ≥ 3.9 (only for gpt-image-2 slide/cover generation and optional rescore)
+- **Python** ≥ 3.9 (only for image generation and optional rescore)
 - **FFmpeg + FFprobe** on PATH (or set explicit paths in `config.json`)
-- **API keys** (environment variables, or a `.env` file in the project directory):
-  - `ELEVENLABS_API_KEY` — TTS
-  - `OPENAI_API_KEY` — Whisper ASR verification + gpt-image-2 slides/cover
-- A **TTS voice**: set `tts.voiceId` in `config.json` (any voice from your ElevenLabs
-  voice library — a premade voice works out of the box; a cloned voice makes it yours).
+- **Local services** (must be running before you start the pipeline):
+  - **sd-server** (:8080, GPU 0) — ERNIE-Image-Turbo image generation
+  - **TTS server** (:8001, GPU 0) — Qwen3-TTS synthesis, conda env `qwen3-tts`
+  - **vLLM ASR** (:8002, GPU 1) — Qwen3-ASR-1.7B text transcription, conda env `breeze-asr-v2`
+  - **ASR Server** (:8012, GPU 1) — ForcedAligner 0.6B word timestamps, conda env `qwen3-asr`
+- A **TTS voice**: set `tts.voice` in `config.json` (e.g. `vivian`, `ryan`, `aiden`).
+  See supported speakers from your Qwen3-TTS CustomVoice model.
 
 > ⚠️ Never hardcode API keys in scripts and never commit them to git. One of our keys
 > was auto-revoked from a public repo push and 32 videos rendered silent. Environment
@@ -50,15 +54,19 @@ Create `config.json` in your project directory (start from `references/config-ex
 ```json
 {
   "tts": {
-    "provider": "elevenlabs",
-    "voiceId": "YOUR_ELEVENLABS_VOICE_ID",
-    "model": "eleven_multilingual_v2",
+    "provider": "qwen3-tts",
+    "baseURL": "http://localhost:8001/v1",
+    "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+    "voice": "vivian",
+    "response_format": "wav",
+    "speed": 1.0,
     "maxRetries": 5
   },
   "asr": {
-    "provider": "openai",
-    "model": "whisper-1",
-    "language": "zh",
+    "provider": "qwen3-asr",
+    "condaEnv": "qwen3-asr",
+    "model": "Qwen/Qwen3-ASR-1.7B",
+    "forcedAligner": "Qwen/Qwen3-ForcedAligner-0.6B",
     "passThreshold": 0.85
   },
   "video": {
@@ -99,6 +107,36 @@ Create `config.json` in your project directory (start from `references/config-ex
 
 **The ⭐ steps are non-negotiable.** Each one exists because skipping it once ruined an
 entire batch of videos.
+
+---
+
+## Startup Commands (start these before running the pipeline)
+
+```bash
+# Terminal 1: Image server (GPU 0)
+~/stable-diffusion.cpp/build/bin/sd-server \
+  --diffusion-model ~/comfy_ggufs/ComfyUI/models/unet/ernie-image-turbo-Q4_K_M.gguf \
+  --vae ~/comfy_ggufs/ComfyUI/models/vae/flux2-vae.safetensors \
+  --llm ~/comfy_ggufs/ComfyUI/models/text_encoders/ministral-3-3b.safetensors \
+  --listen-port 8080
+
+# Terminal 2: TTS server (GPU 0)
+bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate qwen3-tts && python3 -u /tmp/tts_server.py'
+
+# Terminal 3: vLLM ASR (GPU 1, text transcription)
+bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate breeze-asr-v2 && \
+  vllm serve Qwen/Qwen3-ASR-1.7B --port 8002 --enforce-eager --trust-remote-code --max-model-len 4096'
+
+# Terminal 4: ASR server (GPU 1, word timestamps)
+bash -c 'source ~/anaconda3/etc/profile.d/conda.sh && conda activate qwen3-asr && python3 -u scripts/asr_server.py'
+
+# Terminal 5: Pipeline
+cd /path/to/project
+python3 scripts/slides_gen.py .
+node scripts/tts_with_asr.js .
+node scripts/assemble.js .
+node scripts/gen_subtitles.js .
+```
 
 > 🔴 **The cover is part of the video, not an optional extra.** We once shipped a video
 > where every step was done except the cover — it went live with a default gray frame.
@@ -142,11 +180,6 @@ TTS engines mispronounce things. Prevent it at the script stage:
 | Parenthetical content | Rewrite as natural speech |
 | Chinese heteronyms 破音字 (還/重/長/得…) | Scan with references/heteronyms.json, rewrite |
 
-**Punctuation and pacing:** our TTS script strips punctuation before synthesis (each
-punctuation mark becomes a pause in Chinese TTS — dense commas produce machine-gun
-narration). Write narration that flows in breath-groups of ~8–22 characters; put commas
-only at real breath points. Subtitles still use the original punctuated text.
-
 ---
 
 ## Step 2: Slides
@@ -154,7 +187,7 @@ only at real breath points. Subtitles still use the original punctuated text.
 Two first-class paths. Pick ONE per video (Path A is our channel default; Path B has no
 image-API dependency).
 
-### Path A — gpt-image-2 hand-drawn teaching style (`scripts/slides_gen.py`)
+### Path A — ERNIE-Image-Turbo / sd-server (`scripts/slides_gen.py`)
 
 Full-bleed AI-generated slides in a "professor's hand-drawn lecture notes" style:
 white background, bold black CJK title top-left with underline, thin black arrows,
@@ -164,12 +197,15 @@ lots of whitespace, a small mascot in the corner, stick figures only (no real fa
    Wrap every string that must appear on the slide in 「」. Always end the shared style
    block with: 「所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。數字要正確。」
 2. `python scripts/slides_gen.py` → generates `slides_raw/slide_NN.png` (1536×1024).
-   Batch ≤4–5 concurrent lanes (~120s per image). **Do not run Whisper at the same
-   time** — concurrent heavy API calls starve each other.
+   Default sampling steps = 50 (configurable in `config.json` → `image.steps`).
+   ERNIE-Image-Turbo at ≥50 steps produces noticeably clearer Chinese text;
+   below 30 steps characters are often garbled or have missing strokes.
+   Batch ≤4–5 concurrent lanes. **Do not run ASR at the same
+   time** — concurrent heavy GPU calls starve each other.
 3. **Visually inspect every image** (garbled characters / wrong or invented numbers /
    typos → regenerate just that slide; HTTP 502 → just retry that slide).
-   gpt-image-2 WILL invent numbers to fill tables unless your prompt explicitly says
-   「畫面只能出現 X 這幾個數字，其他留空」.
+   sd-server (ERNIE-Image-Turbo) WILL invent numbers to fill tables unless your prompt
+   explicitly says 「畫面只能出現 X 這幾個數字，其他留空」.
 4. `node scripts/pad_and_burn.js pad` → 1536×1024 scaled to 1410×940, padded onto a
    1920×1080 white canvas with a 140px bottom band reserved for subtitles.
 
@@ -206,8 +242,8 @@ Use only when Playwright and the image API are both unavailable.
 node scripts/tts_with_asr.js [project_dir]
 ```
 
-Reads `narration.json`, synthesizes each entry via ElevenLabs, saves `audio/slide_XX.mp3`,
-then **verifies every clip with Whisper ASR**:
+Reads `narration.json`, synthesizes each entry via Qwen3-TTS HTTP API, saves `audio/slide_XX.wav`,
+then **verifies every clip with Qwen3-ASR**:
 
 1. Transcribe the generated audio
 2. Compute character-overlap similarity vs the original text
@@ -217,16 +253,15 @@ then **verifies every clip with Whisper ASR**:
 **Adjustment rules:** swap synonyms / split long sentences / write numbers in Chinese —
 but never change the meaning, never drop information.
 
-**Don't chase 0.85 forever — verify the words, ship on redundancy.** Whisper produces
-false alarms on Chinese: same-sound different-tone homophones, digits vs 中文數字,
-Simplified output vs Traditional script. If the ASR "errors" are homophones and every
-key word/number comes through, the audio is correct — keep the best attempt. The slide
-shows the number visually and the subtitle uses the original text, so the viewer has
-triple redundancy. For digit-heavy narration, run `python scripts/rescore.py` — it
-strips numerals and compares toneless-pinyin multisets (≥0.90 = pass), which kills
-most false failures. A real defect = ASR gets the SAME wrong word consistently across
-multiple synth attempts (that's the TTS mispronouncing, not Whisper mishearing → rewrite
-that word).
+**Don't chase 0.85 forever — verify the words, ship on redundancy.** Qwen3-ASR produces
+far fewer false alarms than Whisper on Chinese (homophone errors are rare). If the ASR
+"errors" are homophones and every key word/number comes through, the audio is correct —
+keep the best attempt. The slide shows the number visually and the subtitle uses the
+original text, so the viewer has triple redundancy. For digit-heavy narration, run
+`python scripts/rescore.py` — it strips numerals and compares toneless-pinyin multisets
+(≥0.90 = pass), which kills most false failures. A real defect = ASR gets the SAME wrong
+word consistently across multiple synth attempts (that's the TTS mispronouncing, not
+ASR mishearing → rewrite that word).
 
 ---
 
@@ -236,7 +271,7 @@ that word).
 node scripts/assemble.js [project_dir]
 ```
 
-Pairs each `slides/slide_XX.png` with `audio/slide_XX.mp3`, creates per-slide clips,
+Pairs each `slides/slide_XX.png` with `audio/slide_XX.wav`, creates per-slide clips,
 concatenates into `video.mp4`.
 
 Key flags (all already in the script):
@@ -252,9 +287,12 @@ Key flags (all already in the script):
 > 44100 stereo audio), re-encode audio, add faststart, and align loudness
 > (`loudnorm=I=-16:TP=-1.5:LRA=11`). Details in references/lessons-learned.md.
 
-> 🔴 **Mixing two TTS providers in one video?** Their sample rates differ (ElevenLabs
-> 44100 Hz vs OpenAI TTS 24000 Hz). Resample everything to 44100 BEFORE assembly or
+> 🔴 **Mix TTS from two providers in one video?** Resample everything to 44100 BEFORE assembly or
 > some players choke exactly at the voice-switch point.
+>
+> ⚠️ **Qwen3-TTS outputs 24 kHz WAV** — the assemble script now adds `-ar 44100` automatically,
+> but if you hand-roll ffmpeg commands, always resample to 44100 before concatenation, or
+> the splice points may click or be rejected by some players.
 
 ---
 
@@ -283,7 +321,7 @@ Inspect `verify.png`: is every text element readable at mobile size?
 node scripts/gen_subtitles.js [project_dir]
 ```
 
-Produces `subtitles_aligned.srt`: **Whisper word timestamps for timing, original
+Produces `subtitles_aligned.srt`: **Qwen3-ASR word timestamps for timing, original
 narration text for display** (never use ASR output as subtitle text — it mishears).
 Line breaks are width-aware (CJK=1, Latin=0.5, ≤16 full-width per line) and never cut
 inside an English word.
@@ -301,13 +339,13 @@ Ship options:
   FontSize 30 / MarginV 30 sits inside the reserved 140px band)
   For full-bleed dark HTML slides use FontSize=14–18, MarginV=6–12, BorderStyle=3 instead.
 
-For rough/cloned voices where Whisper timestamps collapse, there is a geometry-based
+For rough/cloned voices where Qwen3-ASR timestamps collapse, there is a geometry-based
 fallback (ffmpeg `silencedetect` + character-width proportional alignment) — see
 references/lessons-learned.md § subtitle alignment.
 
 ---
 
-## Step 7: Cover / Thumbnail (`scripts/cover_gen.py`)
+## Step 8: Cover / Thumbnail (`scripts/cover_gen.py`)
 
 ```bash
 python scripts/cover_gen.py "一張 YouTube 影片封面，橫式 16:9，白底手繪教學風…主標題用超大粗黑體繁體中文寫「你的標題」…"
@@ -322,7 +360,7 @@ python scripts/cover_gen.py "一張 YouTube 影片封面，橫式 16:9，白底�
 
 ---
 
-## Step 8: Upload
+## Step 9: Upload
 
 Platform-specific; do it however you normally operate (browser automation, manual, CLI).
 Regardless of method, these rules survived contact with reality:
@@ -344,13 +382,13 @@ Regardless of method, these rules survived contact with reality:
 my-video-project/
 ├── config.json              ← project config (from references/config-example.json)
 ├── narration.json           ← script text per slide
-├── slides_prompts.json      ← (Path A) one gpt-image-2 prompt per slide
+├── slides_prompts.json      ← (Path A) one sd-server prompt per slide
 ├── slides_raw/              ← (Path A) raw 1536×1024 generations
 ├── slides/                  ← final 1920×1080 PNGs (padded or screenshotted)
 │   ├── slide_01.png
 │   └── ...
 ├── audio/
-│   ├── slide_01.mp3
+│   ├── slide_01.wav
 │   └── ...
 ├── temp/                    ← per-slide clips + whisper word caches
 ├── video.mp4                ← assembled (no subtitles)
@@ -367,15 +405,15 @@ All scripts take the project directory as an optional first argument (default: C
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/slides_gen.py` | gpt-image-2 slide generation from slides_prompts.json |
+| `scripts/slides_gen.py` | Local image generation from slides_prompts.json (ERNIE-Image-Turbo) |
 | `scripts/pad_and_burn.js` | pad 3:2 images to 16:9 + subtitle band / burn SRT |
 | `scripts/screenshot.js` | Playwright HTML→PNG screenshots |
 | `scripts/generate_slides.js` | Node Canvas fallback slide renderer |
-| `scripts/tts_with_asr.js` | ElevenLabs TTS + Whisper ASR verification loop |
+| `scripts/tts_with_asr.js` | Qwen3-TTS + Qwen3-ASR verification loop |
 | `scripts/assemble.js` | FFmpeg per-slide clips + concat |
-| `scripts/gen_subtitles.js` | aligned SRT (whisper timing + original text) |
+| `scripts/gen_subtitles.js` | aligned SRT (Qwen3-ASR timing + original text) |
 | `scripts/rescore.py` | homophone/digit-tolerant second-chance ASR scoring |
-| `scripts/cover_gen.py` | gpt-image-2 cover generation |
+| `scripts/cover_gen.py` | Local image cover generation (ERNIE-Image-Turbo) |
 
 ---
 

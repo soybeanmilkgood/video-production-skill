@@ -1,57 +1,38 @@
 /**
- * TTS + ASR Verification Script
+ * TTS + ASR Verification Script (Local Edition)
  *
  * Reads narration.json from the project directory, synthesizes each entry
- * via ElevenLabs TTS, and verifies with OpenAI Whisper ASR.
+ * via Qwen3-TTS HTTP API, and verifies with Qwen3-ASR (qwen_asr library).
  *
  * Usage: node tts_with_asr.js [project_dir]
  *   - project_dir: directory containing narration.json (default: CWD)
  *
- * Environment variables (or a .env file in the project directory):
- *   ELEVENLABS_API_KEY — ElevenLabs API key
- *   OPENAI_API_KEY     — OpenAI API key (for Whisper)
- *
- * config.json in project_dir (required for voiceId):
- *   { "tts": { "voiceId": "...", "model": "...", "maxRetries": 5,
- *              "stripPunctuation": true },
- *     "asr": { "passThreshold": 0.85, "language": "zh" } }
+ * config.json in project_dir:
+ *   { "tts": { "baseURL": "http://localhost:8001/v1", "model": "...",
+ *              "voice": "vivian", "maxRetries": 5 },
+ *     "asr": { "condaEnv": "qwen3-asr", "model": "Qwen/Qwen3-ASR-1.7B",
+ *              "forcedAligner": "Qwen/Qwen3-ForcedAligner-0.6B", "passThreshold": 0.85 } }
  */
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 
 // --- Resolve project directory ---
 const PROJECT_DIR = path.resolve(process.argv[2] || process.cwd());
-
-// --- Load .env fallback (project dir) ---
-try {
-  const envPath = path.join(PROJECT_DIR, '.env');
-  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^([A-Z_]+)=(.*)$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
-  }
-} catch (e) { /* no .env — fine, env vars may already be set */ }
 
 // --- Load config ---
 const CONFIG_PATH = path.join(PROJECT_DIR, 'config.json');
 const config = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) : {};
 
-const VOICE_ID = config.tts?.voiceId || process.env.TTS_VOICE_ID;
-const MODEL_ID = config.tts?.model || 'eleven_multilingual_v2';
-const PASS_THRESHOLD = config.asr?.passThreshold || 0.85;
-const MAX_RETRIES = config.tts?.maxRetries || 5;
-const STRIP_PUNCT = config.tts?.stripPunctuation !== false; // default true
+const TTS_CFG = config.tts || {};
+const ASR_CFG = config.asr || {};
+const PASS_THRESHOLD = ASR_CFG.passThreshold || 0.85;
+const MAX_RETRIES = TTS_CFG.maxRetries || 5;
 
-if (!VOICE_ID || VOICE_ID.startsWith('YOUR_')) {
-  console.error('ERROR: set tts.voiceId in config.json (or TTS_VOICE_ID env var).');
-  console.error('Any voice from your ElevenLabs voice library works — premade or cloned.');
-  process.exit(1);
-}
-const ELEVENLABS_KEY = process.env.ELEVENLABS_API_KEY;
-if (!ELEVENLABS_KEY) { console.error('ERROR: ELEVENLABS_API_KEY env var not set'); process.exit(1); }
-const OPENAI_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_KEY) { console.error('ERROR: OPENAI_API_KEY env var not set'); process.exit(1); }
+if (!TTS_CFG.baseURL) { console.error('ERROR: tts.baseURL not set in config.json'); process.exit(1); }
+const TTS_URL = `${TTS_CFG.baseURL.replace(/\/+$/, '')}/audio/speech`;
+
+if (!ASR_CFG.condaEnv) { console.error('ERROR: asr.condaEnv not set in config.json'); process.exit(1); }
 
 // --- Load narration ---
 const narrationPath = path.join(PROJECT_DIR, 'narration.json');
@@ -65,7 +46,7 @@ const audioDir = path.join(PROJECT_DIR, 'audio');
 if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir, { recursive: true });
 
 console.log(`Project: ${PROJECT_DIR}`);
-console.log(`Slides: ${narration.length} | Voice: ${VOICE_ID} | Threshold: ${PASS_THRESHOLD}`);
+console.log(`Slides: ${narration.length} | TTS: ${TTS_CFG.model || 'default'} | Threshold: ${PASS_THRESHOLD}`);
 console.log('---');
 
 // --- Similarity: character overlap ratio ---
@@ -83,24 +64,27 @@ function similarity(a, b) {
   return matches / Math.max(sa.length, sb.length);
 }
 
-// --- ElevenLabs TTS ---
+// --- Qwen3-TTS via HTTP API ---
 function synthesize(text, outputPath) {
   return new Promise((resolve, reject) => {
-    const data = JSON.stringify({
-      text,
-      model_id: MODEL_ID,
-      voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+    const url = new URL(TTS_URL);
+    const body = JSON.stringify({
+      model: TTS_CFG.model || undefined,
+      input: text,
+      voice: TTS_CFG.voice || 'vivian',
+      response_format: TTS_CFG.response_format || 'wav',
+      speed: TTS_CFG.speed ?? 1.0,
+      language: TTS_CFG.language || undefined,
     });
-    const req = https.request({
-      hostname: 'api.elevenlabs.io',
-      path: `/v1/text-to-speech/${VOICE_ID}`,
+    const https = require(url.protocol === 'https:' ? 'https' : 'http');
+    const req = https.request(url, {
       method: 'POST',
-      headers: { 'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': ELEVENLABS_KEY }
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
     }, res => {
       if (res.statusCode !== 200) {
-        let body = '';
-        res.on('data', d => body += d);
-        res.on('end', () => reject(new Error(`TTS HTTP ${res.statusCode}: ${body}`)));
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => reject(new Error(`TTS HTTP ${res.statusCode}: ${data.slice(0, 200)}`)));
         return;
       }
       const chunks = [];
@@ -108,78 +92,41 @@ function synthesize(text, outputPath) {
       res.on('end', () => { fs.writeFileSync(outputPath, Buffer.concat(chunks)); resolve(); });
     });
     req.on('error', reject);
-    req.write(data);
-    req.end();
-  });
-}
-
-// --- OpenAI Whisper ASR ---
-async function transcribe(audioPath) {
-  const audioData = fs.readFileSync(audioPath);
-  const boundary = '----FormBoundary' + Date.now();
-  const parts = [];
-  parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`);
-  parts.push(audioData);
-  parts.push(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1`);
-  parts.push(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${config.asr?.language || 'zh'}`);
-  parts.push(`\r\n--${boundary}--\r\n`);
-
-  const body = Buffer.concat(parts.map(p => typeof p === 'string' ? Buffer.from(p) : p));
-
-  return new Promise((resolve, reject) => {
-    const req = https.request({
-      hostname: 'api.openai.com',
-      path: '/v1/audio/transcriptions',
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_KEY}`,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': body.length
-      }
-    }, res => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        if (res.statusCode !== 200) { reject(new Error(`ASR HTTP ${res.statusCode}: ${data}`)); return; }
-        try { resolve(JSON.parse(data).text || ''); } catch(e) { reject(e); }
-      });
-    });
-    req.on('error', reject);
     req.write(body);
     req.end();
   });
 }
 
-// --- Strip ALL punctuation (CJK + Latin) before sending to TTS ---
-// Every punctuation mark becomes a pause in Chinese TTS output. Dense commas produce
-// machine-gun narration; stripping them lets the voice flow in natural breath groups.
-// Subtitles still come from the original punctuated narration.json.
-// Disable with config.tts.stripPunctuation = false if your voice behaves differently.
-function stripPunctForTTS(text) {
-  return text
-    .replace(/[。！？，；、：「」『』（）「」《》〈〉【】〔〕｛｝…—–‐~～]/g, ' ')
-    .replace(/[.,!?;:"'(){}\[\]‐-―‘-‟…]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+// --- Qwen3-ASR via HTTP server (port 8012) ---
+async function asrTranscribe(audioPath) {
+  const fs = require('fs');
+  const buffer = fs.readFileSync(audioPath);
+  const form = new FormData();
+  form.append('file', new Blob([buffer]), 'audio.wav');
+  form.append('return_timestamps', 'false');
+  const url = `${ASR_CFG.baseURL || 'http://localhost:8012'}/v1/audio/transcriptions`;
+  const res = await fetch(url, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) });
+  if (!res.ok) throw new Error(`ASR HTTP ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.text;
 }
 
 // --- Process one slide ---
 async function processSlide(idx) {
   const num = String(idx + 1).padStart(2, '0');
   const text = narration[idx];
-  const ttsText = STRIP_PUNCT ? stripPunctForTTS(text) : text;
-  const outPath = path.join(audioDir, `slide_${num}.mp3`);
+  const outPath = path.join(audioDir, `slide_${num}.wav`);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`[${num}/${String(narration.length).padStart(2, '0')}] Attempt ${attempt}/${MAX_RETRIES}...`);
 
     try {
-      await synthesize(ttsText, outPath);
+      await synthesize(text, outPath);
       const size = fs.statSync(outPath).size;
       console.log(`  TTS OK: ${Math.round(size / 1024)} KB`);
 
       console.log(`  ASR verifying...`);
-      const transcript = await transcribe(outPath);
+      const transcript = asrTranscribe(outPath);
       const sim = similarity(text, transcript);
       console.log(`  Similarity: ${(sim * 100).toFixed(1)}%`);
 

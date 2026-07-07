@@ -1,4 +1,4 @@
-"""gpt-image-2 slide generation (hand-drawn teaching style).
+"""Local image generation (ERNIE-Image-Turbo / sd-server) — replaces gpt-image-2.
 
 Reads slides_prompts.json from the project directory. Two accepted formats:
 
@@ -16,12 +16,12 @@ Usage:
 Output: slides_raw/slide_NN.png (1536x1024). Pad to 1920x1080 afterwards with
 `node pad_and_burn.js pad`.
 
-Needs OPENAI_API_KEY (env var, or .env in the project directory).
+Config in config.json:
+  { "image": { "baseURL": "http://localhost:8080/v1", "model": "...", "size": "1536x1024" } }
+
 Tips (learned the hard way):
-  - Run at most 4-5 of these in parallel; don't run Whisper at the same time.
+  - Run at most 4-5 of these in parallel; don't run ASR at the same time.
   - Visually inspect EVERY output; regenerate single slides on typos/garbled text.
-  - moderation_block (HTTP 400): rephrase to neutral objects/abstract imagery and
-    drop human figures; same prompt sometimes passes on a plain retry.
 """
 import os, sys, base64, json, time, pathlib
 from urllib import request
@@ -32,17 +32,16 @@ if "--dir" in args:
     i = args.index("--dir"); proj = args[i+1]; args = args[:i] + args[i+2:]
 PROJ = pathlib.Path(proj).resolve()
 
-def load_key():
-    if os.environ.get("OPENAI_API_KEY"):
-        return os.environ["OPENAI_API_KEY"]
-    envf = PROJ / ".env"
-    if envf.exists():
-        for line in envf.read_text(encoding="utf-8").splitlines():
-            if line.startswith("OPENAI_API_KEY="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    sys.exit("ERROR: OPENAI_API_KEY not set (env var or .env in project dir)")
+# Load config
+config_path = PROJ / "config.json"
+if not config_path.exists():
+    sys.exit(f"ERROR: {config_path} not found — need image.baseURL in config.json")
+config = json.loads(config_path.read_text(encoding="utf-8"))
+IMG_CFG = config.get("image", {})
+BASE_URL = IMG_CFG.get("baseURL", "http://localhost:8080/v1").rstrip("/")
+MODEL = IMG_CFG.get("model", "ERNIE-Image-Turbo")
+SIZE = IMG_CFG.get("size", "1536x1024")
 
-API_KEY = load_key()
 OUT = PROJ / "slides_raw"; OUT.mkdir(exist_ok=True)
 
 spec = json.loads((PROJ / "slides_prompts.json").read_text(encoding="utf-8"))
@@ -55,10 +54,11 @@ else:
 def gen(i):  # i is 1-based
     out = OUT / f"slide_{i:02d}.png"; t0 = time.time()
     print(f"[{i}] gen...", flush=True)
-    body = json.dumps({"model": "gpt-image-2", "prompt": prompts[i-1],
-                       "size": "1536x1024", "quality": "high", "n": 1}).encode()
-    req = request.Request("https://api.openai.com/v1/images/generations", data=body,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"})
+    body = json.dumps({"model": MODEL, "prompt": prompts[i-1],
+                       "size": SIZE, "n": 1, "response_format": "b64_json",
+                       "steps": IMG_CFG.get("steps", 50)}).encode()
+    req = request.Request(f"{BASE_URL}/images/generations", data=body,
+        headers={"Content-Type": "application/json"})
     try:
         with request.urlopen(req, timeout=300) as r:
             data = json.loads(r.read())

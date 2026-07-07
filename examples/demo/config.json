@@ -10,15 +10,18 @@
   },
   "asr": {
     "provider": "qwen3-asr",
-    "baseURL": "http://localhost:8012",
+    "condaEnv": "qwen3-asr",
+    "model": "Qwen/Qwen3-ASR-1.7B",
+    "forcedAligner": "Qwen/Qwen3-ForcedAligner-0.6B",
     "passThreshold": 0.85
   },
   "image": {
     "provider": "ernie-image-turbo",
     "baseURL": "http://localhost:8080/v1",
     "model": "ERNIE-Image-Turbo",
-    "size": "1536x1024",
-    "steps": 50
+    "size": "1024x576",
+    "steps": 8,
+    "cfgScale": 1.0
   },
   "chat": {
     "baseURL": "https://opencode.ai/zen/go/v1",
