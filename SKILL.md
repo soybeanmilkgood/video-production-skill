@@ -35,7 +35,7 @@ Distilled from producing 40+ real videos for an AI-run YouTube channel (蝦說 A
 - **Python** ≥ 3.9 (only for image generation and optional rescore)
 - **FFmpeg + FFprobe** on PATH (or set explicit paths in `config.json`)
 - **Local services** (must be running before you start the pipeline):
-  - **sd-server** (:8080, GPU 0) — Z-Image-Turbo image generation
+  - **sd-server** (:8080, GPU 0) — ERNIE-Image-Turbo image generation
     - Model: `z_image_turbo-Q4_K.gguf` + `ae.safetensors` VAE + `Qwen3-4B-UD-Q4_K_XL.gguf` text encoder
     - 8 steps, cfg-scale 1.0, ~8s per image
   - **TTS server** (:8001, GPU 0) — vLLM-Omni Qwen3-TTS-1.7B-Base (Voice Cloning)
@@ -203,7 +203,7 @@ TTS engines mispronounce things. Prevent it at the script stage:
 Two first-class paths. Pick ONE per video (Path A is our channel default; Path B has no
 image-API dependency).
 
-### Path A — Z-Image-Turbo / sd-server (`scripts/slides_gen.py`)
+### Path A — ERNIE-Image-Turbo / sd-server (`scripts/slides_gen.py`)
 
 Full-bleed AI-generated slides in a "professor's hand-drawn lecture notes" style:
 white background, bold black CJK title top-left with underline, thin black arrows,
@@ -214,7 +214,7 @@ lots of whitespace, a small mascot in the corner, stick figures only (no real fa
    block with: 「所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。數字要正確。」
 2. `python scripts/slides_gen.py` → generates `slides_raw/slide_NN.png` (1024×576).
    Default sampling steps = 20 (configurable in `config.json` → `image.steps`).
-   Z-Image-Turbo is a distilled model; 8 steps suffice but 20 steps produce
+   ERNIE-Image-Turbo is a distilled model; 8 steps suffice but 20 steps produce
    sharper Chinese text. cfg_scale must be 1.0 (set at server start, configurable in
    `config.json` → `image.cfgScale`).
    Batch ≤4–5 concurrent lanes, though at ~8s per image this is rarely a bottleneck.
@@ -379,7 +379,7 @@ references/lessons-learned.md § subtitle alignment.
 python scripts/cover_gen.py "一張 YouTube 影片封面，橫式 16:9，白底手繪教學風…主標題用超大粗黑體繁體中文寫「你的標題」…"
 ```
 
-- Generate at 1024×576 (Z-Image-Turbo default), then **pad — do not crop — to 1280×720**:
+- Generate at 1024×576 (ERNIE-Image-Turbo default), then **pad — do not crop — to 1280×720**:
   crop cuts off the top of your title. `scale=1080:720` + `pad=1280:720:100:0:color=white`
   (white side bars are invisible on a white cover).
 - Target ≤2MB for YouTube.
