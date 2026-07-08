@@ -213,9 +213,9 @@ lots of whitespace, a small mascot in the corner, stick figures only (no real fa
    Wrap every string that must appear on the slide in 「」. Always end the shared style
    block with: 「所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。數字要正確。」
 2. `python scripts/slides_gen.py` → generates `slides_raw/slide_NN.png` (1024×576).
-   Default sampling steps = 8 (configurable in `config.json` → `image.steps`).
-   Z-Image-Turbo is a distilled model that converges in 8 steps; more steps do not
-   improve quality. cfg_scale must be 1.0 (set at server start, configurable in
+   Default sampling steps = 20 (configurable in `config.json` → `image.steps`).
+   Z-Image-Turbo is a distilled model; 8 steps suffice but 20 steps produce
+   sharper Chinese text. cfg_scale must be 1.0 (set at server start, configurable in
    `config.json` → `image.cfgScale`).
    Batch ≤4–5 concurrent lanes, though at ~8s per image this is rarely a bottleneck.
 3. **Visually inspect every image** (garbled characters / wrong or invented numbers /

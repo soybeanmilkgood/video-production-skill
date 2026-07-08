@@ -50,7 +50,7 @@ def gen():
     print("gen cover...", flush=True)
     body = json.dumps({"model": MODEL, "prompt": PROMPT,
                        "size": SIZE, "n": 1, "response_format": "b64_json",
-                       "steps": IMG_CFG.get("steps", 8),
+                       "steps": IMG_CFG.get("steps", 20),
                        "cfg_scale": IMG_CFG.get("cfgScale", 1.0)}).encode()
     req = request.Request(f"{BASE_URL}/images/generations", data=body,
         headers={"Content-Type": "application/json"})

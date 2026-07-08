@@ -22,7 +22,7 @@
     "baseURL": "http://localhost:8080/v1",
     "model": "Z-Image-Turbo",
     "size": "1024x576",
-    "steps": 8,
+    "steps": 20,
     "cfgScale": 1.0
   },
   "chat": {
