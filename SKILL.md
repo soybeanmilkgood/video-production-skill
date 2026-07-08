@@ -458,3 +458,11 @@ pipeline and reinvent (worse) wheels. Re-read the skill fresh each session — i
 subtitle drift, moderation blocks on image generation, players that refuse concat-copied
 files, Whisper false alarms, batch API contention, and more. Read it before your first
 video; grep it when something looks weird — the odds are good we already hit it.
+
+## 驗證報告
+
+- [ERNIE-Image GGUF 全量 Pipeline 驗證報告](docs/reports/2026-07-08-ernie-gguf-pipeline-verification.md)
+
+### 穩定版本
+
+- `v-ernie-gguf-stable` — ERNIE-Image GGUF 雙模式 sd-cli（2026-07-08）
