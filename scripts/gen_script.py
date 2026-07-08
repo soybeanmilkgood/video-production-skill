@@ -149,11 +149,13 @@ def expand_short_narration(text, cfg, system_prompt, target_min=120, target_max=
     return result
 
 def main():
-    if len(sys.argv) < 2:
-        print("用法: python3 scripts/gen_script.py \"主題\" [project_dir]")
+    no_expand = '--no-expand' in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if len(args) < 1:
+        print("用法: python3 scripts/gen_script.py \\\"主題\\\" [project_dir] [--no-expand]")
         sys.exit(1)
-    topic = sys.argv[1]
-    project_dir = sys.argv[2] if len(sys.argv) > 2 else "."
+    topic = args[0]
+    project_dir = args[1] if len(args) > 1 else "."
     cfg = load_config(project_dir)
     print(f"主題：{topic}")
     print(f"模型：{cfg['chat']['model']}")
@@ -181,68 +183,75 @@ def main():
     assert len(narration) == len(slides), \
         f"MISMATCH: narration={len(narration)} slides={len(slides)}"
 
-    # 自動補字：擴充低於 120 字的旁白
-    TARGET_TOTAL = 3600
-    short_indices = [(i, t) for i, t in enumerate(narration) if len(t) < 120]
-    if short_indices:
-        print(f"\n📝 發現 {len(short_indices)} 條低於 120 字，自動擴充中...")
-        for i, text in short_indices:
-            print(f"  Slide {i+1}: {len(text)} 字 → ", end="", flush=True)
-            narration[i] = expand_short_narration(text, cfg, system_prompt)
-            print(f"{len(narration[i])} 字")
-        still_short = [i+1 for i, t in enumerate(narration) if len(t) < 120]
-        if still_short:
-            print(f"\n⚠️  擴充後仍有 {len(still_short)} 條低於 120 字：slide {still_short}")
-            print("   建議手動檢查 narration.json")
-        else:
-            print("\n✅ 全部擴充完成，每條 ≥ 120 字")
-
-    # 總字數強制檢查：擴充 <150 的條目，仍不足則增加投影片
-    total_chars = sum(len(t) for t in narration)
-    print(f"\n總字數: {total_chars} / 目標: {TARGET_TOTAL}")
-
-    if total_chars < TARGET_TOTAL:
-        print(f"字數不足，差 {TARGET_TOTAL - total_chars} 字，擴充 <150 的條目...")
-        for i, text in enumerate(narration):
-            if len(text) < 150 and total_chars < TARGET_TOTAL:
-                old_len = len(text)
+    if not no_expand:
+        # 自動補字：擴充低於 120 字的旁白
+        TARGET_TOTAL = 3600
+        short_indices = [(i, t) for i, t in enumerate(narration) if len(t) < 120]
+        if short_indices:
+            print(f"\n📝 發現 {len(short_indices)} 條低於 120 字，自動擴充中...")
+            for i, text in short_indices:
+                print(f"  Slide {i+1}: {len(text)} 字 → ", end="", flush=True)
                 narration[i] = expand_short_narration(text, cfg, system_prompt)
-                added = len(narration[i]) - old_len
-                total_chars += added
-                print(f"  Slide {i+1}: {old_len} → {len(narration[i])} 字 (+{added}, 總計: {total_chars})")
+                print(f"{len(narration[i])} 字")
+            still_short = [i+1 for i, t in enumerate(narration) if len(t) < 120]
+            if still_short:
+                print(f"\n⚠️  擴充後仍有 {len(still_short)} 條低於 120 字：slide {still_short}")
+                print("   建議手動檢查 narration.json")
+            else:
+                print("\n✅ 全部擴充完成，每條 ≥ 120 字")
 
-    # Round 3: 仍不足則自動增加投影片
-    if total_chars < TARGET_TOTAL * 0.9:
-        deficit = TARGET_TOTAL - total_chars
-        extra_slides = max(1, deficit // 140)
-        print(f"\n仍差 {deficit} 字，自動增加 {extra_slides} 張投影片...")
-        for j in range(extra_slides):
-            slide_num = len(narration) + 1
-            fill_prompt = f"""為主題生成第 {slide_num} 張補充投影片。
+        # 總字數強制檢查：擴充 <150 的條目，仍不足則增加投影片
+        total_chars = sum(len(t) for t in narration)
+        print(f"\n總字數: {total_chars} / 目標: {TARGET_TOTAL}")
+
+        if total_chars < TARGET_TOTAL:
+            print(f"字數不足，差 {TARGET_TOTAL - total_chars} 字，擴充 <150 的條目...")
+            for i, text in enumerate(narration):
+                if len(text) < 150 and total_chars < TARGET_TOTAL:
+                    old_len = len(text)
+                    narration[i] = expand_short_narration(text, cfg, system_prompt)
+                    added = len(narration[i]) - old_len
+                    total_chars += added
+                    print(f"  Slide {i+1}: {old_len} → {len(narration[i])} 字 (+{added}, 總計: {total_chars})")
+
+        # Round 3: 仍不足則自動增加投影片
+        if total_chars < TARGET_TOTAL * 0.9:
+            deficit = TARGET_TOTAL - total_chars
+            extra_slides = max(1, deficit // 140)
+            print(f"\n仍差 {deficit} 字，自動增加 {extra_slides} 張投影片...")
+            for j in range(extra_slides):
+                slide_num = len(narration) + 1
+                fill_prompt = f"""為主題生成第 {slide_num} 張補充投影片。
 旁白 120-150 字（繁體中文），投影片 prompt（白底手繪教學風）。
 投影片 prompt 結尾加：「所有中文字必須完全正確、清楚可讀、不可有亂碼或錯字。」
 輸出 JSON：{{"narration": "...", "slide_prompt": "..."}}"""
-            try:
-                result = chat_completion(cfg, system_prompt, fill_prompt, temperature=0.7)
-                result = result.strip()
-                if result.startswith("```"):
-                    lines = result.split("\n")
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    if lines and lines[-1].strip().startswith("```"):
-                        lines = lines[:-1]
-                    result = "\n".join(lines).strip()
-                extra = json.loads(result)
-                narration.append(extra["narration"])
-                slides.append(extra["slide_prompt"])
-                total_chars += len(extra["narration"])
-                print(f"  Slide {slide_num}: {len(extra['narration'])} 字 (總計: {total_chars})")
-            except Exception as e:
-                print(f"  ⚠️ 補充投影片 {j+1} 失敗: {e}")
+                try:
+                    result = chat_completion(cfg, system_prompt, fill_prompt, temperature=0.7)
+                    result = result.strip()
+                    if result.startswith("```"):
+                        lines = result.split("\n")
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].strip().startswith("```"):
+                            lines = lines[:-1]
+                        result = "\n".join(lines).strip()
+                    extra = json.loads(result)
+                    narration.append(extra["narration"])
+                    slides.append(extra["slide_prompt"])
+                    total_chars += len(extra["narration"])
+                    print(f"  Slide {slide_num}: {len(extra['narration'])} 字 (總計: {total_chars})")
+                except Exception as e:
+                    print(f"  ⚠️ 補充投影片 {j+1} 失敗: {e}")
 
-    assert len(narration) == len(slides), \
-        f"MISMATCH after expansion: narration={len(narration)} slides={len(slides)}"
-    print(f"\n最終: {len(narration)} 張, {total_chars} 字")
+        assert len(narration) == len(slides), \
+            f"MISMATCH after expansion: narration={len(narration)} slides={len(slides)}"
+        print(f"\n最終: {len(narration)} 張, {total_chars} 字")
+    else:
+        print("\n--no-expand 模式：跳過自動補字（避免頻繁 API 呼叫）")
+        total_chars = sum(len(t) for t in narration)
+        assert len(narration) == len(slides), \
+            f"MISMATCH: narration={len(narration)} slides={len(slides)}"
+        print(f"最終: {len(narration)} 張, {total_chars} 字")
 
     with open(os.path.join(project_dir, "narration.json"), "w", encoding="utf-8") as f:
         json.dump(narration, f, ensure_ascii=False, indent=2)

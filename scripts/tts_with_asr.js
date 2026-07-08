@@ -67,7 +67,7 @@ function similarity(a, b) {
 }
 
 // --- vLLM-Omni TTS via HTTP API (returns Buffer) ---
-async function synthesizeBuffer(text, cfg) {
+async function synthesizeBuffer(text) {
   const url = `${TTS_CFG.baseURL.replace(/\/+$/, '')}/v1/audio/speech`;
   const body = JSON.stringify({
     input: text,
@@ -161,7 +161,7 @@ async function asrTranscribe(audioPath) {
     let audio = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        audio = await synthesizeBuffer(text, cfg);
+        audio = await synthesizeBuffer(text);
         const size = audio.length;
         if (size > MAX_AUDIO_SIZE) {
           console.log(`  ⚠️  ${size} bytes > 2MB (attempt ${attempt + 1}/${MAX_RETRIES})`);
