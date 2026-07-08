@@ -66,7 +66,30 @@ function similarity(a, b) {
   return matches / Math.max(sa.length, sb.length);
 }
 
-// --- vLLM-Omni TTS via HTTP API ---
+// --- vLLM-Omni TTS via HTTP API (returns Buffer) ---
+async function synthesizeBuffer(text, cfg) {
+  const url = `${TTS_CFG.baseURL.replace(/\/+$/, '')}/v1/audio/speech`;
+  const body = JSON.stringify({
+    input: text,
+    voice: TTS_CFG.voice || 'papaya',
+    language: TTS_CFG.language || 'Chinese',
+    non_streaming_mode: true,
+    response_format: TTS_CFG.response_format || 'wav',
+  });
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    signal: AbortSignal.timeout(300000),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`TTS HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+  }
+  return Buffer.from(await resp.arrayBuffer());
+}
+
+// --- Legacy synthesize (file-based) — kept for warmup ---
 function synthesize(text, outputPath) {
   return new Promise((resolve, reject) => {
     const url = new URL(TTS_URL);
@@ -124,21 +147,40 @@ async function asrTranscribe(audioPath) {
 
   console.log(`Phase 1: TTS synthesis (serial) — ${TOTAL} slides\n`);
 
-  // Phase 1: Serial TTS
+  // Phase 1: Serial TTS with audio size validation + auto-retry
+  const MAX_AUDIO_SIZE = 2 * 1024 * 1024; // 2MB threshold (normal: 80-500KB)
+  const MIN_AUDIO_SIZE = 5000; // 5KB minimum
+  const MAX_RETRIES = 3;
+  
   const slides = [];
   for (let i = 0; i < TOTAL; i++) {
     const num = String(i + 1).padStart(2, '0');
     const text = narration[i];
     const outPath = path.join(audioDir, `slide_${num}.wav`);
     console.log(`[${num}/${String(TOTAL).padStart(2, '0')}] TTS...`);
-    try {
-      await synthesize(text, outPath);
-      const size = fs.statSync(outPath).size;
-      console.log(`  → ${Math.round(size / 1024)} KB`);
-      slides.push({ idx: i, num, text, path: outPath });
-    } catch (err) {
-      console.log(`  ❌ TTS failed: ${err.message}`);
+    let audio = null;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        audio = await synthesizeBuffer(text, cfg);
+        const size = audio.length;
+        if (size > MAX_AUDIO_SIZE) {
+          console.log(`  ⚠️  ${size} bytes > 2MB (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          continue;
+        }
+        if (size < MIN_AUDIO_SIZE) {
+          console.log(`  ⚠️  ${size} bytes < 5KB (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          continue;
+        }
+        break; // Size OK
+      } catch (err) {
+        console.log(`  ❌ ${err.message} (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        if (attempt >= MAX_RETRIES) throw err;
+      }
     }
+    await fs.promises.writeFile(outPath, audio);
+    const kb = Math.round(audio.length / 1024);
+    console.log(`  → ${kb} KB`);
+    slides.push({ idx: i, num, text, path: outPath });
   }
 
   if (slides.length === 0) { console.error('No slides generated, aborting.'); process.exit(1); }

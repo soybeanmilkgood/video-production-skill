@@ -60,9 +60,10 @@ def build_system_prompt(project_dir):
 
 ## 硬性規則（不可違反）
 
-1. 旁白：每條「嚴格」80–150 字（繁體中文）。低於 80 字絕對不可接受，高於 150 字必須拆成兩條。
-   口語化，用比喻、反問、幽默。若內容不足以達到 80 字，加一個生活化的例子、比喻、或反問句來擴充，不要用填充詞灌水。
-   生成後自行計算每條字數，低於 80 字的條目直接重寫。
+1. 旁白：每條「嚴格」100–150 字（繁體中文）。低於 100 字絕對不可接受。
+   口語化，用比喻、反問、幽默。每條旁白必須包含：一個論點 + 一個生活化例子或比喻 + 一個過渡或反問。
+   生成後自行計算每條字數，低於 100 字的條目直接重寫擴充。
+   目標總字數約 3000 字（25 條 × 120 字）。
 2. 投影片：每條對應一條旁白，條數必須完全相等
 3. 一張投影片一個概念，不塞太多
 4. 英文縮寫改中文或加句點（LLM → 大語言模型，或 L.L.M.）
@@ -98,10 +99,9 @@ def build_user_prompt(topic):
 主題：{topic}
 
 要求：
-- 20-30 張投影片（目標總旁白約 3000 字）
-- 旁白用繁體中文
-- 確保 narration 和 slides_prompts 條數完全相等
-- ⚠️ 每條旁白必須嚴格在 80-150 字之間，生成後自行檢查字數，不合格的條目重寫
+- 22-28 張投影片
+- ⚠️ 每條旁白嚴格 100-150 字，目標總字數約 3000 字
+- 每條必須包含：論點 + 例子/比喻 + 過渡/反問
 - 封面要包含主標題（用「」包裹）
 - 封面風格與投影片一致（白底手繪教學風）
 
@@ -124,8 +124,8 @@ def check_tts_safe(narration):
     for i, text in enumerate(narration):
         if len(text) > 150:
             warnings.append(f"Slide {i+1}: 旁白 {len(text)} 字，超過 150 字上限")
-        if len(text) < 80:
-            warnings.append(f"Slide {i+1}: 僅 {len(text)} 字，低於 80 字下限 ← 請務必擴充")
+        if len(text) < 100:
+            warnings.append(f"Slide {i+1}: 僅 {len(text)} 字，低於 100 字下限 ← 請務必擴充")
         nums = re.findall(r'\b\d{2,}\b', text)
         if nums:
             warnings.append(f"Slide {i+1}: 含阿拉伯數字 {nums} → 建議改中文數字")
@@ -134,10 +134,11 @@ def check_tts_safe(narration):
             warnings.append(f"Slide {i+1}: 含英文縮寫 {abbr} → 建議改中文或加句點")
     return warnings
 
-def expand_short_narration(text, cfg, system_prompt, target_min=80, target_max=150):
-    """用 LLM 擴充過短的旁白到 80-150 字"""
+def expand_short_narration(text, cfg, system_prompt, target_min=100, target_max=150):
+    """用 LLM 擴充過短的旁白到 100-150 字"""
     expand_prompt = f"""以下旁白只有 {len(text)} 字，低於 {target_min} 字下限。
-請擴充到 {target_min}–{target_max} 字，保持原意不變，加一個生活化的例子或比喻來充實內容。
+請擴充到 {target_min}–{target_max} 字，保持原意不變。
+必須加入一個生活化的例子或比喻，以及一個過渡句或反問句。
 只輸出擴充後的文字，不要加任何說明。
 
 原文：{text}"""
@@ -180,20 +181,20 @@ def main():
     assert len(narration) == len(slides), \
         f"MISMATCH: narration={len(narration)} slides={len(slides)}"
 
-    # 自動補字：擴充低於 80 字的旁白
-    short_indices = [(i, t) for i, t in enumerate(narration) if len(t) < 80]
+    # 自動補字：擴充低於 100 字的旁白
+    short_indices = [(i, t) for i, t in enumerate(narration) if len(t) < 100]
     if short_indices:
-        print(f"\n📝 發現 {len(short_indices)} 條低於 80 字，自動擴充中...")
+        print(f"\n📝 發現 {len(short_indices)} 條低於 100 字，自動擴充中...")
         for i, text in short_indices:
             print(f"  Slide {i+1}: {len(text)} 字 → ", end="", flush=True)
             narration[i] = expand_short_narration(text, cfg, system_prompt)
             print(f"{len(narration[i])} 字")
-        still_short = [i+1 for i, t in enumerate(narration) if len(t) < 80]
+        still_short = [i+1 for i, t in enumerate(narration) if len(t) < 100]
         if still_short:
-            print(f"\n⚠️  擴充後仍有 {len(still_short)} 條低於 80 字：slide {still_short}")
+            print(f"\n⚠️  擴充後仍有 {len(still_short)} 條低於 100 字：slide {still_short}")
             print("   建議手動檢查 narration.json")
         else:
-            print("\n✅ 全部擴充完成，每條 ≥ 80 字")
+            print("\n✅ 全部擴充完成，每條 ≥ 100 字")
 
     with open(os.path.join(project_dir, "narration.json"), "w", encoding="utf-8") as f:
         json.dump(narration, f, ensure_ascii=False, indent=2)
