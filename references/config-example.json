@@ -18,11 +18,11 @@
     "concurrency": 4
   },
   "image": {
-    "provider": "z-image-turbo",
+    "provider": "ernie-image-turbo",
     "baseURL": "http://localhost:8080/v1",
-    "model": "Z-Image-Turbo",
+    "model": "ERNIE-Image-Turbo",
     "size": "1024x576",
-    "steps": 20,
+    "steps": 8,
     "cfgScale": 1.0
   },
   "chat": {

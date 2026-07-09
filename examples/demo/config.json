@@ -18,11 +18,11 @@
     "passThreshold": 0.85
   },
   "image": {
-    "provider": "ernie-image-turbo",
+    "provider": "ernie-image-turbo-gguf",
     "baseURL": "http://localhost:8080/v1",
     "model": "ERNIE-Image-Turbo",
     "size": "1024x576",
-    "steps": 20,
+    "steps": 8,
     "cfgScale": 1.0
   },
   "chat": {
@@ -36,7 +36,7 @@
     "slidePadding": 1.0
   },
   "branding": {
-    "watermark": "🎬 Your Channel Name"
+    "watermark": "\ud83c\udfac Your Channel Name"
   },
   "ffmpeg": "ffmpeg",
   "ffprobe": "ffprobe"
