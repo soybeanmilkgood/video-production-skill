@@ -24,7 +24,8 @@ Distilled from producing 40+ real videos for an AI-run YouTube channel (蝦說 A
 7. Quality check (bitrate + frame extraction + visual)
 8. Subtitles → SRT (+ optional burn-in)                   → node scripts/gen_subtitles.js
 9. Cover image → thumbnail                                → python scripts/cover_gen.py
-10. Upload wherever you publish; verify the thumbnail and visibility after upload
+10. Upload to GDrive (video_sub.mp4 + thumbnail)          → python scripts/drive_upload.py
+11. ⭐ Write log to logs/ (auto-commit to GitHub)         → logs/YYYY-MM-DD-topic.md
 
 > 💡 **Qwen3-ASR 原生輸出繁體中文**，Simplified/Traditional 誤判問題已消除。
 ```
@@ -53,8 +54,9 @@ From `references/config-example.json`. Sections: tts, asr, video, branding.
 □ 6. ⭐ Quality check
 □ 7. Subtitles
 □ 8. ⭐ Cover image
-□ 9. Upload
-□ 10. ⭐ Verify thumbnail
+□ 9. Upload to GDrive（video_sub.mp4 + thumbnail）
+□ 10. ⭐ Write log to logs/（auto-commit to GitHub）
+□ 11. ⭐ Verify thumbnail
 ```
 
 ## Steps
@@ -66,7 +68,9 @@ From `references/config-example.json`. Sections: tts, asr, video, branding.
 5. Quality check — bitrate + frame extract
 6. Subtitles — `node scripts/gen_subtitles.js`
 7. Cover — `python scripts/cover_gen.py`
-8. Upload — unlisted first, review, publish
+8. Upload to GDrive — `python scripts/drive_upload.py`
+9. ⭐ Write log to logs/ — logs/YYYY-MM-DD-topic.md
+10. Publish — unlisted first, review, publish
 
 ## Scripts
 
